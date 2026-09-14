@@ -1,14 +1,14 @@
 # Sift
 
-Sift is a Python project for finding silent data-quality problems in tabular files.
+Sift is a Python data-quality linter under active development.
 
-This first milestone establishes the package structure and the core `Finding` / `Severity` model that every later check will return.
+Current capabilities:
 
-## Development setup
+- stable `Finding` and `Severity` models
+- conservative number parsing
+- date-like value detection and parsing helpers
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
-
-The command-line interface and file loading are intentionally not part of this first commit.
