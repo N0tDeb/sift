@@ -4,11 +4,8 @@ Sift is a Python data-quality linter under active development.
 
 Current capabilities:
 
-- stable `Finding` and `Severity` models
-- conservative number parsing
-- date-like value detection and parsing helpers
+- number and date inference
+- CSV delimiter and encoding handling
+- byte-level file diagnostics for malformed input
 
-```bash
-python -m pip install -e ".[dev]"
-python -m pytest -q
-```
+The project is still library-first at this milestone; the CLI arrives after the checking pipeline is in place.
