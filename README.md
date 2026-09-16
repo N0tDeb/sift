@@ -2,9 +2,4 @@
 
 Sift is a Python data-quality linter under active development.
 
-Current capabilities:
-
-- CSV loading and file diagnostics
-- number/date inference
-- one-pass column profiling
-- evidence-based column type classification
+Current capabilities now include per-project configuration through `sift.toml`, including thresholds and ignore rules. The loading, inference, and profiling layers remain dependency-free.
