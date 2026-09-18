@@ -1,0 +1,41 @@
+order_id,customer,order_date,region,quantity,order_total,discount_code,zip,status,notes
+A-1001,Bluefin ltd,07/05/2024,North,35,$465.46,SPRING10,02134,complete,Fragile contents
+A-1002,Eastgate Retail,07/01/2024,South,5,"$1,065.11",SPRING10,94110,complete,Rush delivery
+A-1003,Foxglove Studio,04/04/2024,East,4,"$2,443.74",,02134,complete,Gift wrap requested
+A-1004,Acme Corp,18/03/2024,north,twelve,$562.73,,60614,complete,Bulk pallet
+A-1005, Acme Corp,10/04/2024,north,24,$479.70,VIP5,02134,complete,Signature required
+A-1006,Acme Corp,04/20/2024,East,28,"$3,263.40",,60614,complete,Fragile contents
+A-1007,Delta Foods,12/05/2024,north,16,$415.73,,60614,complete,Second attempt
+A-1008,Bluefin ltd,24/08/2024,North,8,"$2,176.53",,33101,complete,Split shipment
+A-1009, Acme Corp,16/07/2024,West,5,"$3,211.71",SPRING10,33101,complete,Fragile contents
+A-1010,Bluefin ltd,11/12/2024,South,-6,"$3,344.58",,33101,complete,Left at reception
+A-1011,Bluefin Ltd,12/16/2024,North,20,"$2,730.73",VIP5,33101,complete,Second attempt
+A-1012,Bluefin Ltd,2024-07-23,NORTH ,2,"$999,999.00",,07094,complete,Signature required
+A-1013,acme corp,16/01/2024,NORTH ,9,"$3,104.31",,94110,complete,Fragile contents
+A-1014,Delta Foods,03/03/2024,East,18,"$3,698.17",,33101,complete,Held at depot
+A-1015,Bluefin Ltd,1970-01-01,West,25,"$1,025.19",,07094,complete,Customer called to confirm
+A-1016,Acme Crop,22/04/2024,N/A,38,$826.33,,02134,complete,Customer called to confirm
+A-1017,Corvus Media,06/18/2024,NORTH ,9,"$2,908.65",SPRING10,02139,complete,Repeat order from March
+A-1018,Acme Corp,2027-08-14,South,26,"$1,714.50",,94110,complete,Repeat order from March
+A-1019,Corvus Media,02/04/2024,north,29,$744.14,,60614,complete,Rush delivery
+A-1020,acme corp,01/10/2024,North,24,"$2,593.03",,33101,complete,Gift wrap requested,unexpected extra field
+A-1021,Foxglove Studio,03/13/2024,NORTH ,39,"$1,571.60",,02134,complete,Bulk pallet
+A-1022,Delta Foods,08/15/2024,North,10,-999,,02139,complete,"CafÃ© order, morning drop"
+A-1023,Delta Foods,27/12/2024,North,14,-999,,07094,complete,Damaged box reported
+A-1024,Eastgate Retail,01/09/2024,West,6,"$2,931.33",SPRING10,10001,complete,Fragile contents
+A-1025, Acme Corp,04/12/2024,N/A,33,"$1,430.81",,60614,complete,Called ahead
+A-1026,Acme Crop,2024-04-26,N/A,15,$898.66,,10001,complete,Damaged box reported
+A-1027,Acme Corp,05/01/2024,N/A,39,"$3,997.44",,33101,complete,Fragile contents
+A-1028,Bluefin ltd,12/02/2024,north,31,$885.43,,94110,complete,Signature required
+A-1029,Foxglove Studio,01/27/2024,West,23,"$3,355.82",,33101,complete,Repeat order from March
+A-1030,acme corp,12/13/2024,South,12,"$1,857.81",,02134,complete,Called ahead
+A-1031,Corvus Media,07/15/2024,North,11,$776.16,,07094,complete,Customer  asked for a  reprint 
+A-1032,Delta Foods,26/11/2024,N/A,39,"$2,022.84",,07094,complete,Held at depot
+A-1033,Eastgate Retail,05/01/2024,West,7,"$2,236.95",,94110,complete,Bulk pallet
+A-1033,Acme Crop,27/04/2024,north,19,"$2,132.30",SPRING10,10001,complete,"CafÃ© order, morning drop"
+A-1035,Eastgate Retail,14/03/2024,West,23,"$3,756.58",VIP5,60614,complete,Bulk pallet
+A-1036,Eastgate Retail,14/09/2024,north,34,"$2,171.02",,33101,complete,Customer called to confirm
+A-1036,Eastgate Retail,14/09/2024,north,34,"$2,171.02",,33101,complete,Customer called to confirm
+A-1038,Eastgate Retail,09/17/2024,N/A,7,"$3,697.71",,07094,complete,Gift wrap requested
+A-1039,Bluefin Ltd,02/02/2024,East,2,"$3,192.08",,10001,complete,Signature required
+A-1040,Eastgate Retail,20/09/2024,NORTH ,29,"$2,161.68",,60614,complete,Gift wrap requested
