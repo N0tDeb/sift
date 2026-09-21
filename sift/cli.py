@@ -9,9 +9,11 @@ from pathlib import Path
 from . import __version__
 from .checks import run_checks
 from .config import Config, find_config, load_config
-from .loading import LoadError, load
+from .loading import LoadError, Table, load
+from .drift import compare
+from .impact import duplicate_impact, group_impact, render as render_impact, sum_impact
 from .repair import HIGH, MEDIUM, plan_repairs, render_plan, write_csv, write_log
-from .reporting import render_text, summarize, write_report
+from .reporting import render_html, render_json, render_text, summarize, write_report
 
 THRESHOLDS = {"error": 3, "warning": 2, "info": 1, "none": 99}
 
@@ -45,6 +47,24 @@ def build_parser() -> argparse.ArgumentParser:
     fix_cmd.add_argument("--delimiter")
     fix_cmd.add_argument("--config", type=Path)
     fix_cmd.add_argument("--no-config", action="store_true")
+
+    diff_cmd = sub.add_parser("diff", help="Compare a file against a known-good baseline.")
+    diff_cmd.add_argument("baseline", type=Path)
+    diff_cmd.add_argument("current", type=Path)
+    diff_cmd.add_argument("--delimiter")
+    diff_cmd.add_argument("--config", type=Path)
+    diff_cmd.add_argument("--no-config", action="store_true")
+    diff_cmd.add_argument("--format", choices=("text", "json", "html"), default="text")
+    diff_cmd.add_argument("--output", type=Path)
+    diff_cmd.add_argument("--fail-on", choices=tuple(THRESHOLDS), default=None)
+
+    impact_cmd = sub.add_parser("impact", help="Quantify how wrong one aggregate is.")
+    impact_cmd.add_argument("path", type=Path)
+    impact_cmd.add_argument("--sum", metavar="COLUMN")
+    impact_cmd.add_argument("--group-by", metavar="COLUMN")
+    impact_cmd.add_argument("--delimiter")
+    impact_cmd.add_argument("--config", type=Path)
+    impact_cmd.add_argument("--no-config", action="store_true")
 
     profile_cmd = sub.add_parser("profile", help="Describe each column, no judgement.")
     profile_cmd.add_argument("path", type=Path)
@@ -86,6 +106,37 @@ def main(argv: list[str] | None = None) -> int:
                     f"{profile.name[:28]:<28} {profile.kind:<12} "
                     f"{profile.null_rate:>6.1%} null  {profile.distinct:>7,} distinct"
                 )
+            return 0
+
+        if args.command == "diff":
+            config = resolve_config(args, args.current)
+            baseline = load(args.baseline, args.delimiter)
+            current = load(args.current, args.delimiter)
+            findings = compare(baseline, current, config)
+            view = Table(path=current.path, header=current.header, columns=current.columns, n_rows=current.n_rows)
+            if args.format == "json":
+                report = render_json(view, findings)
+            elif args.format == "html":
+                report = render_html(view, findings)
+            else:
+                report = render_text(view, findings)
+            if args.output:
+                args.output.write_text(report, encoding="utf-8")
+                print(f"Wrote {args.output} ({len(findings)} findings).")
+            else:
+                print(report)
+            return exit_code(findings, config)
+
+        if args.command == "impact":
+            if not args.sum and not args.group_by:
+                print("sift: pass --sum COLUMN and/or --group-by COLUMN.", file=sys.stderr)
+                return 2
+            config = resolve_config(args, args.path)
+            table = load(args.path, args.delimiter)
+            total = sum_impact(table, config, args.sum) if args.sum else None
+            groups = group_impact(table, config, args.group_by, args.sum) if args.group_by else None
+            duplicates = duplicate_impact(table, config, args.sum)
+            print(render_impact(table, total, groups, duplicates))
             return 0
 
         if args.command == "fix":

@@ -1,0 +1,61 @@
+order_id,customer,order_date,region,quantity,order_total,discount_code,zip,status,notes
+B-2001,Acme Corp,2024-01-26,North,33,897,WELCOME,10001,complete,Split shipment
+B-2002,Corvus Media,2024-01-19,South,39,1149,SPRING10,10001,complete,Gift wrap requested
+B-2003,Corvus Media,2024-01-09,North,21,3754,SUMMER,02134,complete,Split shipment
+B-2004,Bluefin Ltd,2024-01-03,South,8,2301,WELCOME,94110,complete,Rush delivery
+B-2005,Acme Corp,2024-01-14,North,7,2451,WELCOME,33101,complete,Gift wrap requested
+B-2006,Delta Foods,2024-01-22,East,37,3827,VIP5,33101,complete,Gift wrap requested
+B-2007,Bluefin Ltd,2024-01-25,North,14,1678,VIP5,07094,complete,Left at reception
+B-2008,Delta Foods,2024-01-04,West,1,3999,WELCOME,94110,complete,Split shipment
+B-2009,Acme Corp,2024-01-17,West,33,2103,SUMMER,94110,complete,Split shipment
+B-2010,Bluefin Ltd,2024-01-01,South,6,186,WELCOME,94110,complete,Gift wrap requested
+B-2011,Acme Corp,2024-01-22,East,9,2028,SUMMER,94110,complete,Gift wrap requested
+B-2012,Corvus Media,2024-01-24,South,30,1876,SUMMER,10001,complete,Rush delivery
+B-2013,Acme Corp,2024-01-07,East,27,494,WELCOME,02134,complete,Gift wrap requested
+B-2014,Delta Foods,2024-01-22,North,12,1869,SUMMER,02134,complete,Rush delivery
+B-2015,Bluefin Ltd,2024-01-06,West,19,3697,WELCOME,33101,complete,Rush delivery
+B-2016,Bluefin Ltd,2024-01-20,West,5,1836,VIP5,02134,complete,Gift wrap requested
+B-2017,Corvus Media,2024-01-21,North,37,2315,SUMMER,10001,complete,Left at reception
+B-2018,Corvus Media,2024-01-17,East,4,180,SUMMER,02139,complete,Left at reception
+B-2019,Acme Corp,2024-01-07,East,34,1988,VIP5,10001,complete,Split shipment
+B-2020,Corvus Media,2024-01-18,East,34,1249,WELCOME,33101,complete,Gift wrap requested
+B-2021,Acme Corp,2024-01-28,South,10,240,WELCOME,33101,complete,Rush delivery
+B-2022,Acme Corp,2024-01-09,West,25,2890,SUMMER,10001,complete,Customer called to confirm
+B-2023,Bluefin Ltd,2024-01-15,East,7,2684,WELCOME,94110,complete,Split shipment
+B-2024,Acme Corp,2024-01-28,East,6,1378,WELCOME,10001,complete,Gift wrap requested
+B-2025,Corvus Media,2024-01-02,East,17,1203,SPRING10,07094,complete,Gift wrap requested
+B-2026,Acme Corp,2024-01-06,South,31,2799,SPRING10,02139,complete,Split shipment
+B-2027,Acme Corp,2024-01-28,North,38,1865,SPRING10,02139,complete,Left at reception
+B-2028,Corvus Media,2024-01-08,North,18,863,VIP5,07094,complete,Customer called to confirm
+B-2029,Acme Corp,2024-01-19,West,9,375,WELCOME,10001,complete,Split shipment
+B-2030,Delta Foods,2024-01-19,South,23,3106,SPRING10,02139,complete,Left at reception
+B-2031,Corvus Media,2024-01-05,East,30,3870,VIP5,60614,complete,Gift wrap requested
+B-2032,Corvus Media,2024-01-02,West,8,859,SPRING10,94110,complete,Left at reception
+B-2033,Delta Foods,2024-01-17,East,32,1514,WELCOME,02134,complete,Split shipment
+B-2034,Delta Foods,2024-01-01,South,20,2360,VIP5,02134,complete,Gift wrap requested
+B-2035,Delta Foods,2024-01-21,South,35,1022,VIP5,94110,complete,Left at reception
+B-2036,Delta Foods,2024-01-03,East,26,1877,SPRING10,60614,complete,Rush delivery
+B-2037,Bluefin Ltd,2024-01-27,North,18,1097,WELCOME,07094,complete,Split shipment
+B-2038,Delta Foods,2024-01-09,West,28,3374,SPRING10,07094,complete,Rush delivery
+B-2039,Bluefin Ltd,2024-01-14,North,18,2577,WELCOME,60614,complete,Customer called to confirm
+B-2040,Bluefin Ltd,2024-01-10,South,5,2309,SUMMER,02134,complete,Rush delivery
+B-2041,Acme Corp,2024-01-02,North,35,1957,SPRING10,02134,complete,Rush delivery
+B-2042,Delta Foods,2024-01-23,West,20,1605,SUMMER,10001,complete,Left at reception
+B-2043,Acme Corp,2024-01-20,North,3,1566,VIP5,02134,complete,Customer called to confirm
+B-2044,Delta Foods,2024-01-12,East,30,517,VIP5,02134,complete,Split shipment
+B-2045,Bluefin Ltd,2024-01-09,West,21,153,VIP5,60614,complete,Gift wrap requested
+B-2046,Acme Corp,2024-01-01,West,15,2819,VIP5,07094,complete,Left at reception
+B-2047,Delta Foods,2024-01-06,North,13,1109,SPRING10,07094,complete,Gift wrap requested
+B-2048,Delta Foods,2024-01-07,North,39,2239,WELCOME,10001,complete,Split shipment
+B-2049,Bluefin Ltd,2024-01-11,South,38,3971,VIP5,02134,complete,Rush delivery
+B-2050,Corvus Media,2024-01-28,East,28,1997,VIP5,02139,complete,Split shipment
+B-2051,Acme Corp,2024-01-23,West,33,3862,SPRING10,33101,complete,Split shipment
+B-2052,Delta Foods,2024-01-19,East,34,3710,SUMMER,33101,complete,Gift wrap requested
+B-2053,Delta Foods,2024-01-25,East,7,2057,VIP5,33101,complete,Split shipment
+B-2054,Delta Foods,2024-01-05,North,26,2517,VIP5,07094,complete,Rush delivery
+B-2055,Acme Corp,2024-01-28,East,10,2042,WELCOME,10001,complete,Rush delivery
+B-2056,Delta Foods,2024-01-02,South,36,3589,SPRING10,02139,complete,Gift wrap requested
+B-2057,Bluefin Ltd,2024-01-11,West,29,697,SUMMER,07094,complete,Customer called to confirm
+B-2058,Corvus Media,2024-01-10,West,25,1272,WELCOME,94110,complete,Rush delivery
+B-2059,Bluefin Ltd,2024-01-18,South,24,761,VIP5,02134,complete,Left at reception
+B-2060,Acme Corp,2024-01-24,East,5,1518,SUMMER,94110,complete,Customer called to confirm
