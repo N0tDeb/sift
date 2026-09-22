@@ -23,6 +23,7 @@ from pathlib import Path
 
 from .config import Config
 from .inference import (
+    CONVENTIONS,
     NUMERIC_SENTINELS,
     has_mojibake,
     is_blank,
@@ -32,7 +33,7 @@ from .inference import (
     parse_number,
 )
 from .loading import Column, Table
-from .profiling import CATEGORICAL, DATE, MIXED, NUMERIC, TEXT
+from .profiling import CATEGORICAL, DATE, MIXED, NUMERIC, TEXT, infer_number_convention
 
 HIGH = "high"
 MEDIUM = "medium"
@@ -74,16 +75,19 @@ def _line(row: int) -> int:
     return row + 2
 
 
-def plain_number(raw: str) -> str | None:
-    parsed = parse_number(raw)
+def plain_number(raw: str, convention: str = "en") -> str | None:
+    parsed = parse_number(raw, convention)
     if parsed is None:
         return None
+    thousands, decimal = CONVENTIONS[convention]
     text = raw.strip()
     negative = text.startswith("(") and text.endswith(")")
     body = text.strip("()").strip()
     for symbol in CURRENCY:
         body = body.replace(symbol, "")
-    body = body.replace(",", "").replace("\u00a0", "").strip()
+    body = body.replace(thousands, "").replace("\u00a0", "").strip()
+    if decimal != ".":
+        body = body.replace(decimal, ".")
     if negative:
         body = "-" + body.lstrip("+-")
     try:
@@ -115,7 +119,14 @@ def rule_blank_null(column: Column, values: list[str], plan: RepairPlan) -> None
 
 def rule_plain_number(column: Column, values: list[str], plan: RepairPlan) -> None:
     profile = column.profile
-    if profile.kind != NUMERIC or not profile.number_flags:
+    if profile.kind != NUMERIC:
+        return
+    reading = infer_number_convention(profile)
+    if reading.label in ("undecidable", "conflicting"):
+        plan.refusals.append(Refusal(column.name, "plain-number", reading.reason))
+        return
+    convention = profile.number_convention
+    if not profile.number_flags and convention == "en":
         return
     if "percent" in profile.number_flags:
         plan.refusals.append(
@@ -131,7 +142,7 @@ def rule_plain_number(column: Column, values: list[str], plan: RepairPlan) -> No
     for row, value in enumerate(values):
         if is_blank(value):
             continue
-        cleaned = plain_number(value)
+        cleaned = plain_number(value, convention)
         if cleaned is not None:
             plan.changes.append(
                 Change(_line(row), column.name, value, cleaned, "plain-number", HIGH)

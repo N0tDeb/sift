@@ -29,7 +29,7 @@ from .inference import (
     whitespace_problem,
 )
 from .loading import Table
-from .profiling import BOOLEAN, CATEGORICAL, DATE, MIXED, NUMERIC, TEXT
+from .profiling import BOOLEAN, CATEGORICAL, DATE, MIXED, NUMERIC, TEXT, infer_number_convention
 
 CheckFn = Callable[[Table, Config], list[Finding]]
 CHECKS: list[CheckFn] = []
@@ -50,6 +50,40 @@ def _samples(values: list[str], limit: int) -> list[str]:
         if len(seen) >= limit:
             break
     return seen
+
+
+def _edit_size(left: str, right: str) -> int:
+    """How many characters actually differ between two labels.
+
+    A similarity *ratio* is the wrong test: "chips and tomatillo green chili
+    salsa" and the red variant score 0.93 similar, because they share 35
+    characters. They are not a typo of each other, they are two products.
+    Counting the differing spans instead makes length irrelevant — a typo is
+    one or two characters wrong no matter how long the label is.
+    """
+    total = 0
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, left, right).get_opcodes():
+        if tag != "equal":
+            total += max(i2 - i1, j2 - j1)
+    return total
+
+
+def _looks_like_typo(counts, label: str, other: str) -> bool:
+    """A character-level near-match is not enough on its own.
+
+    A diamond's clarity grades "vvs1"/"vvs2", a sex column's "male"/"female",
+    and majors "biology"/"ecology"/"zoology" are all one or two characters
+    apart and are not typos; they are evenly-used, intentional categories.
+    The signal that separates a typo from a category is frequency skew: a
+    typo is a rare variant of a spelling most rows agree on, not a second
+    spelling used about as often as the first.
+    """
+    count_a = sum(n for value, n in counts.items() if normalize_label(value) == label)
+    count_b = sum(n for value, n in counts.items() if normalize_label(value) == other)
+    minority, majority = min(count_a, count_b), max(count_a, count_b)
+    if minority == 0 or minority == majority or majority < 5:
+        return False
+    return minority <= 2 or minority / majority < 0.15
 
 
 def _pct(part: int, whole: int) -> str:
@@ -335,6 +369,37 @@ def check_numeric_formatting(table: Table, config: Config) -> list[Finding]:
 
 
 @check
+def check_decimal_convention(table: Table, config: Config) -> list[Finding]:
+    findings = []
+    for column in table.columns:
+        profile = column.profile
+        if profile.kind != NUMERIC or not profile.numbers:
+            continue
+        reading = infer_number_convention(profile)
+        if reading.label == "conflicting":
+            findings.append(Finding(
+                "conflicting-number-formats", Severity.ERROR,
+                f"{column.name!r} mixes decimal conventions. " + reading.reason,
+                column=column.name, detail={"column_index": column.index},
+            ))
+        elif reading.label == "undecidable":
+            findings.append(Finding(
+                "ambiguous-decimal-separator", Severity.ERROR,
+                f"{column.name!r} cannot be read safely. " + reading.reason,
+                column=column.name, detail={"column_index": column.index},
+            ))
+        elif profile.number_convention == "eu":
+            findings.append(Finding(
+                "european-numbers", Severity.WARNING,
+                f"{column.name!r} uses a comma for the decimal point and a dot "
+                "for thousands. Any reader assuming English convention will "
+                "misread these by a factor of a thousand, without erroring.",
+                column=column.name, detail={"column_index": column.index},
+            ))
+    return findings
+
+
+@check
 def check_leading_zeros(table: Table, config: Config) -> list[Finding]:
     findings = []
     for column in table.columns:
@@ -418,14 +483,24 @@ def check_label_variants(table: Table, config: Config) -> list[Finding]:
                 )
             )
 
+        # Sequential IDs are "near" each other by construction; a duplicated
+        # order_id once fired this check against its numeric neighbour.
+        if looks_like_id_name(column.name) or (
+            profile.n_present >= 20 and profile.unique_ratio > 0.9
+        ):
+            continue
+
         labels = sorted(groups)
         pairs: list[str] = []
         for i, label in enumerate(labels):
             for other in labels[i + 1 :]:
                 if abs(len(label) - len(other)) > 2 or min(len(label), len(other)) < 4:
                     continue
-                if difflib.SequenceMatcher(None, label, other).ratio() >= 0.9:
-                    pairs.append(f"{label} / {other}")
+                if _edit_size(label, other) > 2:
+                    continue
+                if not _looks_like_typo(profile.value_counts, label, other):
+                    continue
+                pairs.append(f"{label} / {other}")
         if pairs:
             findings.append(
                 Finding(
@@ -515,6 +590,12 @@ def check_numeric_values(table: Table, config: Config) -> list[Finding]:
         profile = column.profile
         if profile.kind != NUMERIC or len(profile.numbers) < 8:
             continue
+        # Statistics over a column that is not consistently numeric describe a
+        # subset the author never intended. Titanic's Ticket is 74% numeric
+        # and 26% strings like "STON/O2. 3101282"; the "outliers" in the
+        # numeric part were just ticket numbers.
+        if profile.offenders:
+            continue
         stats = profile.stats()
         median, mad = stats["median"], stats["mad"]
 
@@ -525,6 +606,11 @@ def check_numeric_values(table: Table, config: Config) -> list[Finding]:
             extreme = sorted(
                 (pair for pair in scored if pair[0] > config.outlier_z), reverse=True
             )
+            # A quarter of a column flagged is not an outlier report, it means
+            # the column is skewed. GDP data (exponentially distributed) hit
+            # 3,798 of 13,979 rows before this line existed.
+            if len(extreme) > config.outlier_share * len(profile.numbers):
+                extreme = []
             if extreme:
                 findings.append(
                     Finding(

@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "sift-csv"
 version = "0.1.0"
-description = "A Python data-quality linter for tabular files."
+description = "A linter for tabular data files. Finds the problems that survive a successful load."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-keywords = ["csv", "data-quality", "linter", "validation"]
+keywords = ["csv", "excel", "parquet", "data-quality", "linter", "etl", "validation"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
@@ -22,7 +22,10 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "ruff>=0.4"]
+excel = ["openpyxl>=3.1"]
+parquet = ["pyarrow>=14.0"]
+all = ["openpyxl>=3.1", "pyarrow>=14.0"]
+dev = ["pytest>=7.0", "ruff>=0.4", "openpyxl>=3.1", "pyarrow>=14.0"]
 
 [project.scripts]
 sift = "sift.cli:main"

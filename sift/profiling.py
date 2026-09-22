@@ -13,11 +13,13 @@ from datetime import datetime
 
 from .inference import (
     Number,
+    evidence_from,
     is_blank,
     is_null_token,
     parse_bool,
     parse_dates,
     parse_number,
+    parse_number_any,
 )
 
 # Kinds a column can be given. "mixed" means no single kind explains it.
@@ -28,6 +30,9 @@ CATEGORICAL = "categorical"
 TEXT = "text"
 EMPTY = "empty"
 MIXED = "mixed"
+# Internal only: a bare 8-digit run, equally a plausible YYYYMMDD and a
+# plausible number. Resolved to DATE or NUMERIC once the whole column is seen.
+COMPACT = "compact"
 
 
 @dataclass
@@ -43,6 +48,8 @@ class ColumnProfile:
 
     numbers: list[float] = field(default_factory=list)
     number_flags: set[str] = field(default_factory=set)
+    number_convention: str = "en"
+    number_evidence: Counter = field(default_factory=Counter)
     dates: list[datetime] = field(default_factory=list)
     date_orders: set[str] = field(default_factory=set)
     ambiguous_date_rows: int = 0
@@ -80,16 +87,19 @@ class ColumnProfile:
         }
 
 
-def _classify(value: str) -> tuple[str, Number | None, list[tuple[datetime, str]]]:
-    number = parse_number(value)
+def _classify(value: str) -> tuple[str, dict[str, Number], list[tuple[datetime, str]]]:
+    readings = parse_number_any(value)
+    number = readings.get("en") or (next(iter(readings.values())) if readings else None)
     dates = parse_dates(value)
     if dates:
-        return DATE, number, dates
+        if value.strip().isdigit() and len(value.strip()) == 8:
+            return COMPACT, readings, dates
+        return DATE, readings, dates
     if number is not None:
-        return NUMERIC, number, []
+        return NUMERIC, readings, []
     if parse_bool(value) is not None:
-        return BOOLEAN, None, []
-    return TEXT, None, []
+        return BOOLEAN, {}, []
+    return TEXT, {}, []
 
 
 def profile_column(
@@ -106,11 +116,27 @@ def profile_column(
             if not is_blank(raw):
                 profile.n_disguised_null += 1
             continue
-        kind, number, dates = _classify(raw)
+        kind, readings, dates = _classify(raw)
         kinds[kind] += 1
-        parsed.append((row, raw, kind, number, dates))
+        if readings:
+            evidence = evidence_from(readings)
+            if evidence:
+                profile.number_evidence[evidence] += 1
+        parsed.append((row, raw, kind, readings, dates))
         if len(profile.value_counts) < max_distinct:
             profile.value_counts[raw] += 1
+
+    # Resolve deferred 8-digit values now the column is fully seen: a date
+    # only if something else in the column is unambiguously a date,
+    # otherwise a number.
+    compact = kinds.pop(COMPACT, 0)
+    if compact:
+        resolved = DATE if kinds.get(DATE) else NUMERIC
+        kinds[resolved] = kinds.get(resolved, 0) + compact
+        parsed = [
+            (row, raw, resolved if kind is COMPACT else kind, number, dates)
+            for row, raw, kind, number, dates in parsed
+        ]
 
     profile.distinct = len(profile.value_counts)
     present = len(parsed)
@@ -126,7 +152,16 @@ def profile_column(
         dominant = NUMERIC
 
     if dominant == NUMERIC or (dominant == DATE and kinds.get(NUMERIC)):
-        for _, _, kind, number, _ in parsed:
+        evidence = profile.number_evidence
+        english, european = evidence.get("en", 0), evidence.get("eu", 0)
+        if european and not english:
+            profile.number_convention = "eu"
+        elif not english and evidence.get("group-eu") and not evidence.get("group-en"):
+            profile.number_convention = "eu"
+        for _, _, kind, readings, _ in parsed:
+            number = readings.get(profile.number_convention) or (
+                next(iter(readings.values())) if readings else None
+            )
             if number is not None:
                 profile.numbers.append(number.value)
                 profile.number_flags |= number.flags
@@ -162,3 +197,48 @@ def profile_column(
     if profile.kind == TEXT and profile.distinct <= 50 and profile.unique_ratio < 0.5:
         profile.kind = CATEGORICAL
     return profile
+
+
+@dataclass
+class NumberReading:
+    convention: str | None
+    label: str
+    reason: str
+
+    @property
+    def usable(self) -> bool:
+        return self.convention is not None and self.label == "certain"
+
+
+def infer_number_convention(profile: ColumnProfile) -> NumberReading:
+    evidence = profile.number_evidence
+    english, european = evidence.get("en", 0), evidence.get("eu", 0)
+    group_en, group_eu = evidence.get("group-en", 0), evidence.get("group-eu", 0)
+    ambiguous = evidence.get("ambiguous", 0)
+
+    if english and european:
+        return NumberReading(
+            None, "conflicting",
+            f"{english} value(s) can only be read the English way and {european} "
+            "only the European way, so no single convention fits the column.",
+        )
+    if english or european:
+        convention = "eu" if european else "en"
+        written = "European" if european else "English"
+        return NumberReading(
+            convention, "certain",
+            f"{european or english} value(s) can only be read the {written} way.",
+        )
+    if group_en and group_eu:
+        return NumberReading(None, "conflicting", "The column mixes both grouping conventions.")
+    if group_eu:
+        return NumberReading("eu", "certain", "Thousands are grouped with a dot.")
+    if group_en:
+        return NumberReading("en", "certain", "Thousands are grouped with a comma.")
+    if ambiguous:
+        return NumberReading(
+            None, "undecidable",
+            f"{ambiguous} value(s) read differently under each convention and "
+            "nothing settles which was meant.",
+        )
+    return NumberReading("en", "none", "Nothing in the column is ambiguous.")

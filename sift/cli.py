@@ -13,6 +13,7 @@ from .loading import LoadError, Table, load
 from .drift import compare
 from .impact import duplicate_impact, group_impact, render as render_impact, sum_impact
 from .repair import HIGH, MEDIUM, plan_repairs, render_plan, write_csv, write_log
+from .sources import SUPPORTED, discover, load_any
 from .reporting import render_html, render_json, render_text, summarize, write_report
 
 THRESHOLDS = {"error": 3, "warning": 2, "info": 1, "none": 99}
@@ -26,8 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"sift {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    check_cmd = sub.add_parser("check", help="Lint one file.")
-    check_cmd.add_argument("path", type=Path)
+    check_cmd = sub.add_parser("check", help="Lint one or more files.")
+    check_cmd.add_argument("paths", type=Path, nargs="+", metavar="PATH")
+    check_cmd.add_argument("--sheet")
     check_cmd.add_argument("--key", action="append", default=[])
     check_cmd.add_argument("--delimiter")
     check_cmd.add_argument("--config", type=Path)
@@ -166,8 +168,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "check":
-            config = resolve_config(args, args.path)
-            table = load(args.path, args.delimiter)
+            targets = discover(args.paths)
+            if not targets:
+                print("sift: nothing to check.", file=sys.stderr)
+                return 2
+            config = resolve_config(args, targets[0])
+            table = load_any(targets[0], args.delimiter, args.sheet)
             findings = run_checks(table, config)
             report = write_report(table, findings, args.format, args.output)
             if args.output:

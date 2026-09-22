@@ -20,6 +20,8 @@ class Config:
     null_warn: float = 0.10
     null_error: float = 0.50
     outlier_z: float = 6.0
+    # Above this share of a column, "outliers" means "skewed distribution".
+    outlier_share: float = 0.05
     max_examples: int = 3
     key: list[str] = field(default_factory=list)
     ignore: list[str] = field(default_factory=list)
@@ -54,7 +56,7 @@ def load_config(path: Path | None) -> Config:
     section = data.get("sift", data)
 
     config = Config()
-    for field_name in ("null_warn", "null_error", "outlier_z"):
+    for field_name in ("null_warn", "null_error", "outlier_z", "outlier_share"):
         if field_name in section:
             setattr(config, field_name, float(section[field_name]))
     if "max_examples" in section:

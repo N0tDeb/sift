@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from functools import lru_cache
 
 # Strings people type when they mean "no value". A loader reads them as text,
 # so the column silently stops being numeric and the nulls stop being null.
@@ -25,27 +26,38 @@ DATE_SENTINELS = {"1900-01-01", "1901-01-01", "1970-01-01", "2099-12-31", "9999-
 TRUE_TOKENS = {"true", "t", "yes", "y"}
 FALSE_TOKENS = {"false", "f", "no", "n"}
 
-_NUMBER_RE = re.compile(
-    r"""^
-    (?P<open>\()?
-    \s*
-    (?P<sign>[-+])?
-    \s*
-    (?P<cur_pre>[$\u20ac\u00a3\u00a5])?
-    \s*
-    (?P<num>
-        \d{1,3}(?:,\d{3})+(?:\.\d+)?
-      | \d+(?:\.\d+)?
-      | \.\d+
+# Two conventions, and no way to prefer one in advance.
+#   1,234.56   English: comma groups thousands, dot marks the decimal
+#   1.234,56   most of Europe and Latin America: exactly reversed
+CONVENTIONS = {"en": (",", "."), "eu": (".", ",")}
+
+
+def _number_re(thousands: str, decimal: str) -> re.Pattern:
+    group, point = re.escape(thousands), re.escape(decimal)
+    return re.compile(
+        rf"""^
+        (?P<open>\()?
+        \s*
+        (?P<sign>[-+])?
+        \s*
+        (?P<cur_pre>[$\u20ac\u00a3\u00a5])?
+        \s*
+        (?P<num>
+            [1-9]\d{{0,2}}(?:{group}\d{{3}})+(?:{point}\d+)?
+          | \d+(?:{point}\d+)?
+          | {point}\d+
+        )
+        \s*
+        (?P<pct>%)?
+        \s*
+        (?P<cur_post>[$\u20ac\u00a3\u00a5])?
+        (?P<close>\))?
+        $""",
+        re.VERBOSE,
     )
-    \s*
-    (?P<pct>%)?
-    \s*
-    (?P<cur_post>[$\u20ac\u00a3\u00a5])?
-    (?P<close>\))?
-    $""",
-    re.VERBOSE,
-)
+
+
+_NUMBER_RES = {name: _number_re(*seps) for name, seps in CONVENTIONS.items()}
 
 # (strptime format, day/month order). Order matters for ambiguity detection.
 DATE_FORMATS: list[tuple[str, str]] = [
@@ -99,26 +111,22 @@ class Number:
         return f"Number({self.value!r}, {sorted(self.flags)!r})"
 
 
-def parse_number(value: str) -> Number | None:
-    """Parse a human-written number. Returns None if it isn't one.
-
-    Records how it was written, because `$1,200` and `1200` mean the same
-    thing to a person and very different things to `float()`.
-    """
-    match = _NUMBER_RE.match(value.strip())
+def _parse_with(value: str, convention: str) -> Number | None:
+    thousands, decimal = CONVENTIONS[convention]
+    match = _NUMBER_RES[convention].match(value.strip())
     if not match:
         return None
     if bool(match["open"]) != bool(match["close"]):
-        return None  # unbalanced parenthesis is not a number, it's damage
+        return None
 
     flags: set[str] = set()
     raw = match["num"]
-    if "," in raw:
+    if thousands in raw:
         flags.add("thousands")
     if match["cur_pre"] or match["cur_post"]:
         flags.add("currency")
 
-    number = float(raw.replace(",", ""))
+    number = float(raw.replace(thousands, "").replace(decimal, "."))
     if match["pct"]:
         flags.add("percent")
     if match["sign"] == "-":
@@ -129,6 +137,101 @@ def parse_number(value: str) -> Number | None:
     return Number(number, flags)
 
 
+@lru_cache(maxsize=16384)
+def _parse_number_any_cached(text: str) -> dict[str, Number]:
+    if "," not in text and "." not in text:
+        parsed = _parse_with(text, "en")
+        return {} if parsed is None else {"en": parsed, "eu": parsed}
+    readings = {}
+    for convention in CONVENTIONS:
+        parsed = _parse_with(text, convention)
+        if parsed is not None:
+            readings[convention] = parsed
+    return readings
+
+
+def parse_number_any(value: str) -> dict[str, Number]:
+    """Every reading of this value as a number, keyed by convention."""
+    return _parse_number_any_cached(value.strip())
+
+
+def evidence_from(readings: dict[str, Number]) -> str | None:
+    """What a parsed value proves about its column's convention."""
+    if not readings:
+        return None
+    if len(readings) == 1:
+        return next(iter(readings))
+    english, european = readings["en"], readings["eu"]
+    if english.value == european.value:
+        return "neutral"
+    if "thousands" in english.flags and "thousands" not in european.flags:
+        return "group-en"
+    if "thousands" in european.flags and "thousands" not in english.flags:
+        return "group-eu"
+    return "ambiguous"
+
+
+def number_evidence(value: str) -> str | None:
+    return evidence_from(parse_number_any(value))
+
+
+def parse_number(value: str, convention: str = "en") -> Number | None:
+    """Parse a human-written number under one convention."""
+    return _parse_with(value, convention)
+
+
+_DATE_SEPARATORS = frozenset("/-., ")
+
+_DIRECTIVES = {
+    "%Y": r"\d{4}", "%y": r"\d{2}", "%m": r"\d{1,2}", "%d": r"\d{1,2}",
+    "%H": r"\d{1,2}", "%M": r"\d{1,2}", "%S": r"\d{1,2}",
+    "%b": r"[A-Za-z]{3,}", "%B": r"[A-Za-z]{3,}",
+}
+
+
+def _shape(fmt: str) -> re.Pattern:
+    pattern, index = "", 0
+    while index < len(fmt):
+        token = fmt[index : index + 2]
+        if token in _DIRECTIVES:
+            pattern += _DIRECTIVES[token]
+            index += 2
+        else:
+            pattern += re.escape(fmt[index])
+            index += 1
+    return re.compile(f"^{pattern}$")
+
+
+_SHAPED_FORMATS = [(_shape(fmt), fmt, order) for fmt, order in DATE_FORMATS]
+
+
+def _could_be_date(text: str) -> bool:
+    length = len(text)
+    if length < 6 or length > 30:
+        return False
+    if text.isdigit():
+        return length == 8
+    if not any(character.isdigit() for character in text):
+        return False
+    return any(character in _DATE_SEPARATORS for character in text)
+
+
+@lru_cache(maxsize=16384)
+def _parse_dates_cached(text: str) -> tuple[tuple[datetime, str], ...]:
+    out: list[tuple[datetime, str]] = []
+    for shape, fmt, order in _SHAPED_FORMATS:
+        if not shape.match(text):
+            continue
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        if fmt == "%Y%m%d" and not (1900 <= parsed.year <= 2100):
+            continue
+        out.append((parsed, order))
+    return tuple(out)
+
+
 def parse_dates(value: str) -> list[tuple[datetime, str]]:
     """Every reading of this value as a date, with the order each assumes.
 
@@ -136,15 +239,9 @@ def parse_dates(value: str) -> list[tuple[datetime, str]]:
     day-first and month-first, the file cannot tell you which one it meant.
     """
     text = value.strip()
-    if not text or (text.isdigit() and len(text) != 8):
+    if not _could_be_date(text):
         return []
-    out: list[tuple[datetime, str]] = []
-    for fmt, order in DATE_FORMATS:
-        try:
-            out.append((datetime.strptime(text, fmt), order))
-        except ValueError:
-            continue
-    return out
+    return list(_parse_dates_cached(text))
 
 
 def parse_bool(value: str) -> bool | None:
