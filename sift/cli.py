@@ -12,6 +12,7 @@ from .config import Config, find_config, load_config
 from .loading import LoadError, Table, load
 from .drift import compare
 from .impact import duplicate_impact, group_impact, render as render_impact, sum_impact
+from .references import Reference, ReferenceError, check_reference
 from .repair import HIGH, MEDIUM, plan_repairs, render_plan, write_csv, write_log
 from .sources import SUPPORTED, discover, load_any
 from .reporting import render_html, render_json, render_text, summarize, write_report
@@ -30,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     check_cmd = sub.add_parser("check", help="Lint one or more files.")
     check_cmd.add_argument("paths", type=Path, nargs="+", metavar="PATH")
     check_cmd.add_argument("--sheet")
+    check_cmd.add_argument("--references", action="append", default=[])
     check_cmd.add_argument("--key", action="append", default=[])
     check_cmd.add_argument("--delimiter")
     check_cmd.add_argument("--config", type=Path)
@@ -175,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
             config = resolve_config(args, targets[0])
             table = load_any(targets[0], args.delimiter, args.sheet)
             findings = run_checks(table, config)
+            for spec in args.references:
+                findings.extend(check_reference(table, Reference.parse(spec), config, load_any))
             report = write_report(table, findings, args.format, args.output)
             if args.output:
                 summary = summarize(findings)
@@ -183,6 +187,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(report)
             return exit_code(findings, config)
 
+    except ReferenceError as exc:
+        print(f"sift: {exc}", file=sys.stderr)
+        return 2
     except LoadError as exc:
         print(f"sift: {exc}", file=sys.stderr)
         return 2
