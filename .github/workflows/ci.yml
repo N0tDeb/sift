@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest -q
+      # Recall against known corruptions. Fails the build if Sift starts
+      # missing problems it used to catch, or starts inventing them on a
+      # file that is clean.
+      - run: python -m bench.run
+
+  # Sift running against its own example data, which is the way it is meant to
+  # be used: a gate that fails the build when a file changes for the worse.
+  data-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[all]"
+      - name: Lint the example files
+        run: sift check examples/ --fail-on none
+      - name: Compare against the baseline
+        run: sift diff examples/orders_baseline.csv examples/orders_messy.csv --fail-on none
+      - name: Repair what is safely repairable
+        run: sift fix examples/orders_messy.csv --force --dry-run
+      - name: Report the blast radius
+        run: sift impact examples/orders_messy.csv --sum order_total --group-by region

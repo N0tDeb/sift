@@ -14,6 +14,23 @@ from pathlib import Path
 
 CONFIG_NAMES = ("sift.toml", ".sift.toml")
 
+# Severity names accepted by `fail_on`, lowest-exiting first. Kept here rather
+# than in the CLI so that loading a config can reject a typo immediately.
+FAIL_ON_LEVELS = ("error", "warning", "info", "none")
+
+_RATIOS = ("null_warn", "null_error", "outlier_share")
+
+
+class ConfigError(Exception):
+    """The config file exists but cannot be trusted.
+
+    Every one of these is raised rather than swallowed on purpose. A config is
+    a statement of intent — someone wrote `fail_on = "warnings"` meaning to
+    tighten the build. Quietly falling back to the default would leave them
+    believing a rule is in force when it is not, which is worse than not
+    having written it.
+    """
+
 
 @dataclass
 class Config:
@@ -49,25 +66,86 @@ def find_config(start: Path) -> Path | None:
     return None
 
 
+def _number(section: dict, name: str, path: Path) -> float:
+    value = section[name]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConfigError(f"{path}: {name} must be a number, got {value!r}.")
+    return float(value)
+
+
+def _string_list(section: dict, name: str, path: Path) -> list[str]:
+    value = section[name]
+    if isinstance(value, str):
+        return [value]
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ConfigError(
+            f"{path}: {name} must be a string or a list of strings, got {value!r}."
+        )
+    return list(value)
+
+
 def load_config(path: Path | None) -> Config:
     if path is None:
         return Config()
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
+
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"{path} is not valid TOML: {exc}") from exc
+    except OSError as exc:
+        raise ConfigError(f"{path} could not be read: {exc}") from exc
+
+    if not isinstance(data.get("sift", data), dict):
+        raise ConfigError(f"{path}: the [sift] section must be a table.")
     section = data.get("sift", data)
 
     config = Config()
-    for field_name in ("null_warn", "null_error", "outlier_z", "outlier_share"):
-        if field_name in section:
-            setattr(config, field_name, float(section[field_name]))
+    for name in ("null_warn", "null_error", "outlier_z", "outlier_share"):
+        if name in section:
+            setattr(config, name, _number(section, name, path))
+
+    for name in _RATIOS:
+        value = getattr(config, name)
+        if not 0.0 <= value <= 1.0:
+            raise ConfigError(
+                f"{path}: {name} is a share of a column and must be between 0 and "
+                f"1, got {value}."
+            )
+    if config.null_warn > config.null_error:
+        raise ConfigError(
+            f"{path}: null_warn ({config.null_warn}) is above null_error "
+            f"({config.null_error}), so no column could ever reach the warning."
+        )
+    if config.outlier_z <= 0:
+        raise ConfigError(f"{path}: outlier_z must be positive, got {config.outlier_z}.")
+
     if "max_examples" in section:
-        config.max_examples = int(section["max_examples"])
+        value = section["max_examples"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ConfigError(
+                f"{path}: max_examples must be a non-negative whole number, "
+                f"got {value!r}."
+            )
+        config.max_examples = value
+
     if "fail_on" in section:
-        config.fail_on = str(section["fail_on"])
+        value = section["fail_on"]
+        if value not in FAIL_ON_LEVELS:
+            raise ConfigError(
+                f"{path}: fail_on must be one of "
+                + ", ".join(FAIL_ON_LEVELS)
+                + f", got {value!r}."
+            )
+        config.fail_on = value
+
     if "key" in section:
-        key = section["key"]
-        config.key = [key] if isinstance(key, str) else list(key)
+        config.key = _string_list(section, "key", path)
     if "ignore" in section:
-        config.ignore = list(section["ignore"])
-    for code, columns in (section.get("ignore_columns") or {}).items():
-        config.ignore_columns[code] = list(columns)
+        config.ignore = _string_list(section, "ignore", path)
+
+    columns = section.get("ignore_columns") or {}
+    if not isinstance(columns, dict):
+        raise ConfigError(f"{path}: ignore_columns must be a table of code = [columns].")
+    for code in columns:
+        config.ignore_columns[code] = _string_list(columns, code, path)
     return config

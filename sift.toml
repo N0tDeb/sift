@@ -1,0 +1,36 @@
+# Sift reads the nearest sift.toml, walking up from the file being checked.
+# Everything here is optional; these are the defaults.
+#
+# `sift init known_good.csv` will write one of these for you, derived from a
+# file you already trust, with the reason for every exemption attached.
+
+[sift]
+# A column is flagged once this share of its rows are empty.
+null_warn = 0.10
+null_error = 0.50
+
+# Modified z-score above which a number counts as an outlier.
+outlier_z = 6.0
+
+# If more than this share of a column is extreme, the column is skewed rather
+# than dirty, and the outlier check stays quiet.
+outlier_share = 0.05
+
+# Values shown per finding.
+max_examples = 3
+
+# Columns that must be present, unique and non-empty in every file.
+key = []
+
+# Lowest severity that exits non-zero: error, warning, info, none.
+fail_on = "error"
+
+# Checks to switch off everywhere, by code.
+ignore = []
+
+# Checks to switch off for named columns only. This is the setting to reach
+# for first — silencing a check globally usually hides a real problem in some
+# other column.
+[sift.ignore_columns]
+# whitespace = ["notes", "description"]
+# high-cardinality = ["email"]

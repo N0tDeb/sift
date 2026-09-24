@@ -10,3 +10,13 @@ build/
 venv/
 .DS_Store
 report.html
+
+# Artefacts the examples in the README produce when you run them
+examples/orders_repaired.csv
+examples/repair-log.csv
+examples/*-report.txt
+examples/learned-sift.toml
+
+# Recording artefacts (the finished GIF is committed; working files are not)
+demo/clean.csv
+demo/*.cast

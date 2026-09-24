@@ -1,0 +1,11 @@
+order_id,order_date,region,customer,total
+A-1001,04/03/2024,North,Acme Corp,"$1,299.00"
+A-1002,05/06/2024,north,Acme Corp,"$980.50"
+A-1003,02/01/2024,"North ",Acme Corp,"$1,450.00"
+A-1004,11/07/2024,South,Acme Corp,"$720.00"
+A-1005,09/08/2024,South,Acme Corp,-999
+A-1006,03/12/2024,South,Acme Crop,"$2,100.00"
+A-1007,06/04/2024,North,Acme Corp,"$1,035.25"
+A-1008,08/05/2024,south,Acme Corp,"$890.00"
+A-1009,01/02/2024,South,Acme Corp,-999
+A-1010,07/09/2024,North,Acme Corp,"$1,675.00"

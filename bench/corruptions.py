@@ -76,6 +76,33 @@ def thousands_separators(header, rows, rng):
 
 
 @corruption
+def european_decimals(header, rows, rng):
+    """The file came from a locale where the dot and comma are reversed."""
+    index = _index(header, "amount")
+    out = [list(row) for row in rows]
+    for row in out:
+        whole, _, fraction = f"{float(row[index]) * 1000:,.2f}".partition(".")
+        row[index] = whole.replace(",", ".") + "," + fraction
+    return Case("European decimal separators", "european-numbers", "amount",
+                header=header, rows=out)
+
+
+@corruption
+def mixed_decimal_conventions(header, rows, rng):
+    """Half the rows written each way — one half is wrong by 1000x."""
+    index = _index(header, "amount")
+    out = [list(row) for row in rows]
+    for position, row in enumerate(out):
+        scaled = float(row[index]) * 1000
+        row[index] = (
+            f"{scaled:,.2f}" if position % 2
+            else f"{scaled:,.2f}".replace(",", "#").replace(".", ",").replace("#", ".")
+        )
+    return Case("mixed decimal conventions", "conflicting-number-formats", "amount",
+                header=header, rows=out)
+
+
+@corruption
 def text_in_a_numeric_column(header, rows, rng):
     index = _index(header, "amount")
     out = [list(row) for row in rows]
@@ -218,7 +245,7 @@ def conflicting_dates(header, rows, rng):
     for position, row in enumerate(out):
         row[index] = "25/12/2024" if position % 2 else "12/25/2024"
     return Case(
-        "two date formats mixed", "ambiguous-dates", "when", header=header, rows=out
+        "two date formats mixed", "conflicting-date-formats", "when", header=header, rows=out
     )
 
 

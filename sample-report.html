@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sift report — orders_messy.csv</title>
+<style>
+:root {
+  --paper: #EFF1EE;
+  --panel: #F7F8F6;
+  --ink: #1B2321;
+  --muted: #66716D;
+  --rule: #D3D8D4;
+  --error: #9E2B25;
+  --warning: #A9701C;
+  --info: #3F6D8C;
+  --clean: #6E8B72;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
+  font-size: 17px;
+  line-height: 1.55;
+}
+.wrap { max-width: 46rem; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+.file {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+  margin-bottom: 1.75rem;
+}
+h1 {
+  font-size: clamp(1.6rem, 4.5vw, 2.3rem);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 0 0 1.5rem;
+  max-width: 22ch;
+}
+.tally { color: var(--muted); font-size: 0.95rem; margin: 0 0 2.5rem; }
+.tally b { color: var(--ink); font-weight: 600; }
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 -4px 0.9rem 0;
+}
+.strip > * {
+  flex: 1 1 64px;
+  min-width: 64px;
+  display: block;
+  padding: 0 4px 4px 0;
+  text-decoration: none;
+  color: inherit;
+}
+.strip .bar {
+  height: 30px;
+  border-radius: 1px;
+  background: var(--clean);
+  opacity: 0.3;
+}
+.strip .name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strip [data-sev] .bar { opacity: 1; }
+.strip [data-sev="error"] .bar { background: var(--error); }
+.strip [data-sev="warning"] .bar { background: var(--warning); }
+.strip [data-sev="info"] .bar { background: var(--info); opacity: 0.7; }
+.strip a:hover .name, .strip a:focus-visible .name { color: var(--ink); }
+.strip a:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.legend {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0 0 3.5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--rule);
+}
+.group { margin-bottom: 2.75rem; }
+.group > h2 {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 0.9rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--rule);
+}
+.finding {
+  border-left: 3px solid var(--rule);
+  padding: 0.1rem 0 0.1rem 1rem;
+  margin-bottom: 1.4rem;
+}
+.finding[data-sev="error"] { border-left-color: var(--error); }
+.finding[data-sev="warning"] { border-left-color: var(--warning); }
+.finding[data-sev="info"] { border-left-color: var(--info); }
+.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 0.15rem;
+}
+.finding[data-sev="error"] .code { color: var(--error); }
+.finding p { margin: 0; }
+.examples {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  padding: 0.5rem 0.65rem;
+  margin-top: 0.6rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+footer {
+  margin-top: 4rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+@media print {
+  body { background: #fff; }
+  .wrap { padding: 0; }
+}
+</style></head>
+<body><div class="wrap">
+<div class="file">examples/orders_messy.csv</div>
+<h1>6 problems here will change your numbers, not just annoy you.</h1>
+<p class="tally"><b>6</b> errors, <b>14</b> warnings, <b>3</b> notes across 40 rows and 10 columns.</p>
+<div class="strip"><a href="#col-order-id" data-sev="error" title="order_id: error"><div class="bar"></div><div class="name">order_id</div></a><a href="#col-customer" data-sev="warning" title="customer: warning"><div class="bar"></div><div class="name">customer</div></a><a href="#col-order-date" data-sev="error" title="order_date: error"><div class="bar"></div><div class="name">order_date</div></a><a href="#col-region" data-sev="warning" title="region: warning"><div class="bar"></div><div class="name">region</div></a><a href="#col-quantity" data-sev="error" title="quantity: error"><div class="bar"></div><div class="name">quantity</div></a><a href="#col-order-total" data-sev="warning" title="order_total: warning"><div class="bar"></div><div class="name">order_total</div></a><a href="#col-discount-code" data-sev="error" title="discount_code: error"><div class="bar"></div><div class="name">discount_code</div></a><a href="#col-zip" data-sev="warning" title="zip: warning"><div class="bar"></div><div class="name">zip</div></a><a href="#col-status" data-sev="info" title="status: info"><div class="bar"></div><div class="name">status</div></a><a href="#col-notes" data-sev="error" title="notes: error"><div class="bar"></div><div class="name">notes</div></a></div>
+<p class="legend">Columns in file order. Colour marks the worst finding in each.</p>
+<section class="group" id="col-order-id"><h2>order_id</h2><div class="finding" data-sev="error"><div class="code">key-not-unique</div><p>Key column &#x27;order_id&#x27; repeats 2 values. Joining on it will multiply rows.</p><div class="examples">A-1033, A-1036</div></div></section><section class="group" id="col-order-date"><h2>order_date</h2><div class="finding" data-sev="error"><div class="code">conflicting-date-formats</div><p>&#x27;order_date&#x27; holds two date formats mixed together. 12 rows can only be day-first and 9 can only be month-first, so no single reading fits. The column holds two formats mixed together and cannot be repaired without knowing which rows came from where. Every row is individually valid, so nothing will error — the dates will simply be wrong.</p><div class="examples">07/05/2024, 07/01/2024, 04/04/2024</div></div><div class="finding" data-sev="warning"><div class="code">future-dates</div><p>&#x27;order_date&#x27; has 1 date in the future, latest 2027-08-14.</p></div><div class="finding" data-sev="warning"><div class="code">sentinel-dates</div><p>&#x27;order_date&#x27; uses placeholder dates in 1 row. They will be treated as real dates in any range filter.</p><div class="examples">1970-01-01</div></div></section><section class="group" id="col-quantity"><h2>quantity</h2><div class="finding" data-sev="error"><div class="code">mixed-types</div><p>&#x27;quantity&#x27; is 2.5% non-numeric (1 row). A typed loader will fall back to text for the whole column, or drop these rows.</p><div class="examples">twelve</div></div></section><section class="group" id="col-discount-code"><h2>discount_code</h2><div class="finding" data-sev="error"><div class="code">missing-values</div><p>&#x27;discount_code&#x27; is 77.5% empty (31 of 40 rows).</p></div></section><section class="group" id="col-notes"><h2>notes</h2><div class="finding" data-sev="error"><div class="code">mojibake</div><p>&#x27;notes&#x27; contains 2 values with mangled characters — UTF-8 text that was decoded as Latin-1 upstream. Re-export rather than find-and-replace.</p><div class="examples">CafÃ© order, morning drop</div></div><div class="finding" data-sev="warning"><div class="code">whitespace</div><p>&#x27;notes&#x27; has 1 value with stray whitespace: padded with spaces (1). Grouping and joining will treat them as distinct.</p><div class="examples">&#x27;Customer  asked for a  reprint &#x27;</div></div></section><section class="group" id="col-whole-file"><h2>whole file</h2><div class="finding" data-sev="error"><div class="code">ragged-rows</div><p>1 row does not have 10 fields. Usually an unescaped delimiter or an unclosed quote.</p><div class="examples">line 21</div></div><div class="finding" data-sev="warning"><div class="code">duplicate-rows</div><p>1 redundant row across 1 group of identical rows. Any total taken from this file is inflated.</p><div class="examples">A-1036, Eastgate Retail, 14/09/2024, north</div></div><div class="finding" data-sev="warning"><div class="code">mixed-line-endings</div><p>Mixed line endings: 11 CRLF and 30 LF. Diffs and checksums will be noisy.</p></div></section><section class="group" id="col-customer"><h2>customer</h2><div class="finding" data-sev="warning"><div class="code">label-variants</div><p>&#x27;customer&#x27; spells 2 values more than one way (case or spacing only). Any group-by will split them.</p><div class="examples">Bluefin Ltd / Bluefin ltd,  Acme Corp / Acme Corp / acme corp</div></div><div class="finding" data-sev="warning"><div class="code">whitespace</div><p>&#x27;customer&#x27; has 3 values with stray whitespace: padded with spaces (3). Grouping and joining will treat them as distinct.</p><div class="examples">&#x27; Acme Corp&#x27;</div></div></section><section class="group" id="col-region"><h2>region</h2><div class="finding" data-sev="warning"><div class="code">disguised-null</div><p>&#x27;region&#x27; writes missing values as text in 6 rows, so they will load as strings rather than nulls.</p><div class="examples">N/A</div></div><div class="finding" data-sev="warning"><div class="code">label-variants</div><p>&#x27;region&#x27; spells 1 value more than one way (case or spacing only). Any group-by will split them.</p><div class="examples">NORTH  / North / north</div></div><div class="finding" data-sev="warning"><div class="code">missing-values</div><p>&#x27;region&#x27; is 15.0% empty (6 of 40 rows).</p></div><div class="finding" data-sev="warning"><div class="code">whitespace</div><p>&#x27;region&#x27; has 5 values with stray whitespace: padded with spaces (5). Grouping and joining will treat them as distinct.</p><div class="examples">&#x27;NORTH &#x27;</div></div></section><section class="group" id="col-order-total"><h2>order_total</h2><div class="finding" data-sev="warning"><div class="code">number-as-text</div><p>&#x27;order_total&#x27; holds numbers written with currency symbols and thousands separators. It will load as text and silently break any arithmetic.</p><div class="examples">$465.46, $1,065.11, $2,443.74</div></div><div class="finding" data-sev="warning"><div class="code">numeric-sentinel</div><p>&#x27;order_total&#x27; repeats -999 in 2 rows. That is a placeholder for missing, and it will be summed and averaged as if it were real.</p></div><div class="finding" data-sev="info"><div class="code">outliers</div><p>&#x27;order_total&#x27; has 1 value far from the median of 2,166.35. Worth a look before you average this column.</p><div class="examples">999,999</div></div><div class="finding" data-sev="info"><div class="code">unexpected-negative</div><p>&#x27;order_total&#x27; reads like a quantity but has 2 negative values, lowest -999. Refunds, or a sign error?</p></div></section><section class="group" id="col-zip"><h2>zip</h2><div class="finding" data-sev="warning"><div class="code">leading-zeros</div><p>&#x27;zip&#x27; is all digits and 14 values start with a zero. Reading it as a number destroys them — keep it text.</p><div class="examples">02134, 07094, 02139</div></div></section><section class="group" id="col-status"><h2>status</h2><div class="finding" data-sev="info"><div class="code">constant-column</div><p>&#x27;status&#x27; is &#x27;complete&#x27; in every row. It carries no information; check whether a filter upstream collapsed it.</p></div></section>
+<footer>Generated by Sift. Findings are heuristics, not verdicts — read the file
+before you change it.</footer>
+</div></body></html>
