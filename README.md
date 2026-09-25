@@ -76,7 +76,7 @@ Every finding has a stable code. [CODES.md](CODES.md) lists all 61 of them with 
 |---|---|
 | `sift check FILE...` | Lint one file, several, or a whole directory. |
 | `sift diff BASELINE FILE` | Compare against a known-good file: dropped columns, type changes, new categories, null-rate jumps, distribution shifts. |
-| `sift fix FILE --output clean.csv` | Write a repaired copy plus an audit log of every cell changed — and a list of what it refused to touch. |
+| `sift fix FILE --output clean.csv` | Write a repaired copy plus an audit log of every cell changed — sensitive before/after values are redacted — and a list of what it refused to touch. |
 | `sift impact FILE --sum COL --group-by COL` | Quantify how wrong one specific aggregate is, in the units of the aggregate. |
 | `sift init FILE` | Learn a `sift.toml` from a file you already trust, with the reason for every exemption written down. |
 | `sift profile FILE` | Describe every column — type, null rate, cardinality, range. No judgement. |
@@ -183,7 +183,7 @@ Three design decisions worth the words:
 
 - **Numbers are edited as text, never round-tripped through `float()`.** Reformatting would change how many decimals the file had. The parse is used only to confirm the edit didn't change the value.
 - **`--log` writes every changed cell** with its line number, before, after, and the rule responsible. Replaying that log against the original reproduces the output exactly — there's a test for it. A cleaned file you can't diff against the original is just a different unverified file.
-- **`fix` refuses to run on a file that didn't parse cleanly.** Ragged rows get padded or truncated on read, so rewriting would make that loss permanent and invisible. `--force` accepts it; the default doesn't.
+- **`fix` refuses unsafe rewrites by default.** Ragged rows get padded or truncated on read, so rewriting would make that loss permanent and invisible. Columns containing spreadsheet-formula-risk values (`=`, `+` or `@`) are also left unchanged, and `fix` will not write an output while that risk remains. `--dry-run` previews the refusal; `--force` explicitly accepts the unresolved risk.
 
 Running `fix` twice changes nothing the second time. Also a test.
 
@@ -290,7 +290,7 @@ Committing a baseline file next to the data turns `diff` into a regression test 
 
 **Missing data** — null rates against configurable thresholds, missing values written as text (`N/A`, `unknown`, `-`), numeric sentinels (`-999`) that will be averaged as real values, empty and constant columns.
 
-**Sensitive data** — columns holding email addresses, phone numbers, payment card numbers or IBANs, and columns *named* like sensitive fields. Never reported with example values.
+**Sensitive data** — columns holding email addresses, phone numbers, payment card numbers or IBANs, and columns *named* like sensitive fields. Once a column is classified as sensitive, other findings for that column also suppress source-value details, and repair audit logs redact its before/after values.
 
 **Safety** — values beginning `=`, `+` or `@`, which a spreadsheet executes as a formula rather than displaying; NUL bytes; files with a header and no rows.
 

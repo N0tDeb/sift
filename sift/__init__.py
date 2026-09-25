@@ -34,11 +34,17 @@ def diff(
     baseline: str | Path, current: str | Path, config: Config | None = None
 ) -> list[Finding]:
     """Compare a file against a baseline and return what changed."""
+    from .checks import sensitive_columns
     from .config import Config as _Config
     from .drift import compare
+    from .findings import redact_sensitive_findings
     from .loading import load
 
-    return compare(load(Path(baseline)), load(Path(current)), config or _Config())
+    old = load(Path(baseline))
+    new = load(Path(current))
+    return redact_sensitive_findings(
+        compare(old, new, config or _Config()), sensitive_columns(new)
+    )
 
 
 def __getattr__(name: str):

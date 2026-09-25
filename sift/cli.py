@@ -17,9 +17,10 @@ from collections import Counter
 from pathlib import Path
 
 from . import __version__
-from .checks import run_checks
+from .checks import run_checks, sensitive_columns
 from .config import FAIL_ON_LEVELS, Config, ConfigError, find_config, load_config
 from .drift import compare
+from .findings import redact_sensitive_findings
 from .impact import ImpactError, duplicate_impact, group_impact, sum_impact
 from .impact import render as render_impact
 from .initialize import build as build_config
@@ -110,7 +111,10 @@ def build_parser() -> argparse.ArgumentParser:
     fix_cmd.add_argument(
         "--force",
         action="store_true",
-        help="Rewrite even when the source could not be parsed cleanly.",
+        help=(
+            "Rewrite even when the source has unresolved rewrite hazards "
+            "(for example ragged rows or spreadsheet-formula content)."
+        ),
     )
     fix_cmd.add_argument("--delimiter")
     fix_cmd.add_argument("--sheet")
@@ -239,6 +243,7 @@ def check_many(targets: list[Path], config: Config, args: argparse.Namespace) ->
                 findings.extend(check_reference(table, reference, config, load_any))
             except ReferenceError as exc:
                 failures.append((target, str(exc)))
+        findings = redact_sensitive_findings(findings, sensitive_columns(table))
         results.append((target, findings))
 
     if args.format == "json":
@@ -389,13 +394,26 @@ def main(argv: list[str] | None = None) -> int:
             )
             destination = str(args.output) if args.output else "(dry run)"
 
+            formula_refusals = [
+                refusal for refusal in plan.refusals if refusal.rule == "formula-injection"
+            ]
+            if formula_refusals and not args.dry_run and not args.force:
+                print(render_plan(table, plan, destination))
+                print(
+                    "sift: refusing to write a repaired file while spreadsheet-formula "
+                    "content remains. Neutralise those cells first, use --dry-run to "
+                    "inspect the plan, or pass --force to accept the unresolved risk.",
+                    file=sys.stderr,
+                )
+                return 2
+
             # Write before reporting. `sift fix ... | head` closes the pipe part
             # way through the summary, and a half-printed report must not mean a
             # file that never got written.
             if not args.dry_run:
                 write_csv(args.output, table.header, rows, table.delimiter)
                 if args.log:
-                    write_log(args.log, plan)
+                    write_log(args.log, plan, sensitive_columns(table))
 
             print(render_plan(table, plan, destination))
             if args.dry_run:
@@ -434,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
                 findings = run_checks(table, config)
                 for reference in references:
                     findings.extend(check_reference(table, reference, config, load_any))
+                findings = redact_sensitive_findings(findings, sensitive_columns(table))
                 report = write_report(table, findings, args.format, args.output)
                 if args.output:
                     summary = summarize(findings)
@@ -450,7 +469,9 @@ def main(argv: list[str] | None = None) -> int:
             guard_output(args.output, args.baseline, args.current)
             baseline = load_any(args.baseline, args.delimiter, args.sheet, args.max_rows)
             current = load_any(args.current, args.delimiter, args.sheet, args.max_rows)
-            findings = compare(baseline, current, config)
+            findings = redact_sensitive_findings(
+                compare(baseline, current, config), sensitive_columns(current)
+            )
             view = Table(
                 path=current.path,
                 header=current.header,

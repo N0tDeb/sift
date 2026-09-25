@@ -12,9 +12,11 @@ at any confidence setting. Refusals are output, not silence: the report lists
 what was left alone and why, so the person knows exactly which problems they
 still own.
 
-Every changed cell is written to an audit log with its before, after, and the
-rule responsible. A cleaned file you cannot diff against the original is just a
-different unverified file.
+Every changed cell is written to an audit log with the rule responsible. The
+before/after values are preserved except for columns Sift identifies as
+sensitive, where the serialized log records an explicit redaction marker. A
+cleaned file you cannot account for against the original is just a different
+unverified file.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from .inference import (
     has_mojibake,
     is_blank,
     is_disguised_null,
+    is_formula_injection,
     normalize_label,
     parse_dates,
     parse_number,
@@ -52,6 +55,7 @@ from .text import plural
 HIGH = "high"
 MEDIUM = "medium"
 RANK = {HIGH: 2, MEDIUM: 1}
+REDACTED_SENSITIVE_VALUE = "[redacted sensitive value]"
 
 CURRENCY = "$\u20ac\u00a3\u00a5"
 
@@ -347,6 +351,34 @@ def plan_repairs(
     grid = [list(column.values) for column in table.columns]
 
     for index, column in enumerate(table.columns):
+        # A repaired file must not make spreadsheet-formula content easier to
+        # execute. The checker deliberately treats leading whitespace before
+        # =, + or @ as risky because spreadsheet imports may trim it. Rewriting
+        # such a column (especially trimming it) can turn a suspicious value
+        # into a directly executable-looking cell, so leave the whole column
+        # unchanged and make the refusal explicit. Numeric/date columns retain
+        # their existing signed-value behaviour and are not formula findings.
+        risky = (
+            column.profile.kind not in (NUMERIC, DATE)
+            and any(is_formula_injection(value) for value in grid[index])
+        )
+        if risky:
+            # Preserve the existing non-mutating refusal checks for this column
+            # even though no repair rule is allowed to rewrite it.
+            rule_refuse_unfixable(column, grid[index], plan)
+            plan.refusals.append(
+                Refusal(
+                    column.name,
+                    "formula-injection",
+                    "This column contains a value beginning with =, + or @, "
+                    "which spreadsheet software may execute as a formula. Sift "
+                    "will not rewrite the column because trimming or normalising "
+                    "it could make that content easier to execute. Neutralise "
+                    "the formula deliberately, then run fix again.",
+                )
+            )
+            continue
+
         for rule in RULES:
             mark = len(plan.changes)
             working = list(grid[index])
@@ -383,19 +415,27 @@ def write_csv(path: Path, header: list[str], rows: list[list[str]], delimiter: s
         writer.writerows(rows)
 
 
-def write_log(path: Path, plan: RepairPlan) -> None:
+def write_log(
+    path: Path, plan: RepairPlan, sensitive_columns: set[str] | None = None
+) -> None:
+    sensitive = sensitive_columns or set()
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(["line", "column", "rule", "confidence", "before", "after"])
         for change in plan.changes:
+            before = change.before
+            after = change.after
+            if change.column in sensitive:
+                before = REDACTED_SENSITIVE_VALUE
+                after = REDACTED_SENSITIVE_VALUE
             writer.writerow(
                 [
                     change.line,
                     change.column,
                     change.rule,
                     change.confidence,
-                    change.before,
-                    change.after,
+                    before,
+                    after,
                 ]
             )
 

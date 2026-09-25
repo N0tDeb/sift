@@ -328,6 +328,16 @@ def has_mojibake(value: str) -> bool:
     return any(marker in value for marker in MOJIBAKE_MARKERS)
 
 
+def is_formula_injection(value: str) -> bool:
+    """Whether a spreadsheet may execute this value as a formula.
+
+    Leading horizontal whitespace is ignored because spreadsheet imports may
+    trim it before deciding whether a cell is a formula. A leading minus is
+    deliberately excluded so ordinary negative numbers remain ordinary data.
+    """
+    return value.lstrip("\t\r ")[:1] in {"=", "+", "@"}
+
+
 def whitespace_problem(value: str) -> str | None:
     if value != value.strip():
         return "padded with spaces"

@@ -551,6 +551,67 @@ def test_every_change_is_in_the_audit_log(tmp_path):
     assert [list(r) for r in zip(*replayed, strict=True)] == rows
 
 
+def test_repair_refuses_formula_injection_column_without_rewriting_it(tmp_path):
+    plan, rows = _fix(
+        tmp_path,
+        """\
+        id,note,region
+        1," =1+1 "," North "
+        2,ok,South
+        3,fine,West
+        """,
+    )
+
+    assert [row[1] for row in rows] == [" =1+1 ", "ok", "fine"]
+    assert rows[0][2] == "North"  # unrelated safe repairs still happen
+    assert not any(change.column == "note" for change in plan.changes)
+    assert any(
+        refusal.column == "note" and refusal.rule == "formula-injection"
+        for refusal in plan.refusals
+    )
+
+
+def test_cli_fix_refuses_to_write_unresolved_formula_content(tmp_path, capsys):
+    path = write(
+        tmp_path,
+        """\
+        id,note,region
+        1," =1+1 "," North "
+        2,ok,South
+        3,fine,West
+        """,
+        "formula.csv",
+    )
+    output = tmp_path / "fixed.csv"
+
+    assert main(["fix", str(path), "--output", str(output), "--no-config"]) == 2
+    captured = capsys.readouterr()
+    assert "formula-injection" in captured.out
+    assert "refusing to write" in captured.err
+    assert not output.exists()
+
+
+def test_cli_fix_force_preserves_formula_column_and_repairs_other_columns(tmp_path):
+    path = write(
+        tmp_path,
+        """\
+        id,note,region
+        1," =1+1 "," North "
+        2,ok,South
+        3,fine,West
+        """,
+        "formula.csv",
+    )
+    output = tmp_path / "fixed.csv"
+
+    assert main(
+        ["fix", str(path), "--output", str(output), "--no-config", "--force"]
+    ) == 0
+    repaired = load(output)
+    assert repaired.by_key("note").values[0] == " =1+1 "
+    assert repaired.by_key("region").values[0] == "North"
+
+
 def test_fixing_twice_changes_nothing_the_second_time(tmp_path):
     text = """\
         id,region,total,when
@@ -1660,6 +1721,89 @@ def test_sensitive_findings_never_include_example_values(tmp_path):
         if finding.code == "sensitive-data":
             assert finding.examples == []
             assert "4111" not in finding.message
+
+
+def test_sensitive_columns_redact_values_from_other_findings(tmp_path):
+    findings = lint(
+        tmp_path,
+        """\
+        customer
+         alice@example.com 
+         bob@example.com 
+         carol@example.com 
+        """,
+    )
+
+    whitespace = next(f for f in findings if f.code == "whitespace")
+    assert whitespace.examples == []
+    assert "alice@example.com" not in whitespace.message
+    assert "alice@example.com" not in json.dumps(whitespace.to_dict())
+    assert "redacted" in whitespace.message.lower()
+
+
+def test_silencing_sensitive_warning_does_not_reenable_value_output(tmp_path):
+    findings = lint(
+        tmp_path,
+        """\
+        customer
+         alice@example.com 
+         bob@example.com 
+         carol@example.com 
+        """,
+        Config(ignore=["sensitive-data"]),
+    )
+
+    assert "sensitive-data" not in codes(findings)
+    whitespace = next(f for f in findings if f.code == "whitespace")
+    assert whitespace.examples == []
+    assert "alice@example.com" not in json.dumps(whitespace.to_dict())
+
+
+def test_fix_audit_log_redacts_sensitive_values_but_keeps_other_values(tmp_path):
+    source = write(
+        tmp_path,
+        """\
+        id,customer,region
+        1," alice@example.com "," North "
+        2," bob@example.com ",South
+        3," carol@example.com ",West
+        """,
+    )
+    output = tmp_path / "fixed.csv"
+    audit = tmp_path / "audit.csv"
+
+    assert main(["fix", str(source), "--output", str(output), "--log", str(audit)]) == 0
+
+    log = audit.read_text(encoding="utf-8")
+    assert "alice@example.com" not in log
+    assert "bob@example.com" not in log
+    assert "carol@example.com" not in log
+    assert "[redacted sensitive value]" in log
+    assert " North " in log  # non-sensitive audit values remain exact
+
+
+def test_public_diff_redacts_sensitive_category_examples(tmp_path):
+    from sift import diff as public_diff
+
+    baseline = write(
+        tmp_path,
+        "contact\n"
+        + "\n".join(["alice@example.com"] * 5 + ["bob@example.com"] * 5)
+        + "\n",
+        name="baseline.csv",
+    )
+    current = write(
+        tmp_path,
+        "contact\n"
+        + "\n".join(["alice@example.com"] * 4 + ["bob@example.com"] * 3 + ["carol@example.com"] * 3)
+        + "\n",
+        name="current.csv",
+    )
+
+    findings = public_diff(baseline, current)
+    new_category = next(f for f in findings if f.code == "new-category")
+    assert new_category.examples == []
+    assert "carol@example.com" not in json.dumps(new_category.to_dict())
 
 
 def test_a_column_named_like_a_sensitive_field_is_noted(tmp_path):

@@ -18,13 +18,14 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from .config import Config
-from .findings import Finding, Severity
+from .findings import Finding, Severity, redact_sensitive_findings
 from .inference import (
     DATE_SENTINELS,
     NUMERIC_SENTINELS,
     has_mojibake,
     is_blank,
     is_disguised_null,
+    is_formula_injection,
     looks_like_id_name,
     normalize_label,
     whitespace_problem,
@@ -901,7 +902,7 @@ def check_formula_injection(table: Table, config: Config) -> list[Finding]:
         risky = [
             value
             for value in column.values
-            if value.lstrip("\t\r ")[:1] in {"=", "+", "@"}
+            if is_formula_injection(value)
         ]
         if not risky:
             continue
@@ -1099,6 +1100,21 @@ def check_sensitive_data(table: Table, config: Config) -> list[Finding]:
     return findings
 
 
+def sensitive_columns(table: Table) -> set[str]:
+    """Columns whose values or names indicate personal/financial data.
+
+    This intentionally bypasses project silencing rules.  Silencing a
+    sensitive-data warning must not make unrelated findings or repair audit
+    logs start printing the underlying values.
+    """
+    return {
+        finding.column
+        for finding in check_sensitive_data(table, Config())
+        if finding.column is not None
+        and finding.code in {"sensitive-data", "sensitive-column-name"}
+    }
+
+
 @check
 def check_value_encoding(table: Table, config: Config) -> list[Finding]:
     findings = []
@@ -1171,4 +1187,8 @@ def run_checks(table: Table, config: Config) -> list[Finding]:
     findings = list(table.file_findings)
     for check_fn in CHECKS:
         findings.extend(check_fn(table, config))
+    # Determine sensitivity before configuration filtering.  A user may mute
+    # the sensitive-data finding, but that must not re-enable raw-value output
+    # from another finding on the same column.
+    findings = redact_sensitive_findings(findings)
     return collapse(config.filter(findings))
