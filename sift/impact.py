@@ -24,7 +24,7 @@ from .config import Config
 from .inference import is_blank, parse_number
 from .loading import Table
 from .repair import MEDIUM, plan_repairs
-from .text import fmt_number, plural
+from .text import fmt_number, plural, terminal_safe
 
 
 class ImpactError(Exception):
@@ -240,10 +240,10 @@ def render(
     groups: GroupImpact | None,
     duplicates: DuplicateImpact | None,
 ) -> str:
-    lines = [f"{table.path}  {plural(table.n_rows, 'row')}", ""]
+    lines = [f"{terminal_safe(table.path)}  {plural(table.n_rows, 'row')}", ""]
 
     if total:
-        lines.append(f"SUM({total.column})")
+        lines.append(f"SUM({terminal_safe(total.column)})")
         if total.loads_as_number:
             lines.append(
                 f"  as it loads      {fmt_number(total.coerced_total):>16}"
@@ -281,8 +281,8 @@ def render(
         lines.append("")
 
     if groups:
-        measure = f", SUM({groups.measure})" if groups.measure else ""
-        lines.append(f"GROUP BY {groups.column}{measure}")
+        measure = f", SUM({terminal_safe(groups.measure)})" if groups.measure else ""
+        lines.append(f"GROUP BY {terminal_safe(groups.column)}{measure}")
         lines.append(
             f"  {groups.groups_now:,} groups today, {groups.groups_after:,} after "
             "repair."
@@ -296,14 +296,17 @@ def render(
                 f"spelling of another{suffix}:"
             )
             for canonical, sources, amount in groups.merges[:5]:
-                spellings = ", ".join(repr(source) for source in sources)
-                lines.append(f"    {spellings} belongs to {canonical!r}  {fmt_number(amount)}")
+                spellings = ", ".join(terminal_safe(repr(source)) for source in sources)
+                lines.append(
+                    f"    {spellings} belongs to {terminal_safe(repr(canonical))}  "
+                    f"{fmt_number(amount)}"
+                )
         lines.append("")
 
     if duplicates and duplicates.extra_rows:
         lines.append("DUPLICATE ROWS")
         detail = (
-            f", inflating SUM({duplicates.measure}) by "
+            f", inflating SUM({terminal_safe(duplicates.measure)}) by "
             f"{fmt_number(duplicates.inflated_amount)}"
             if duplicates.measure
             else ""

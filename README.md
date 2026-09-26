@@ -68,6 +68,8 @@ warning leading-zeros  zip
 
 `--format html` writes a standalone report you can send to whoever owns the data — [sample-report.html](sample-report.html) is one, generated from the example file. `--format json` is for everything else.
 
+Terminal output treats file names, column names and example values as untrusted text: control and Unicode format characters are shown as visible escapes (for example `\\x1b`) instead of being sent to the terminal as control sequences.
+
 Every finding has a stable code. [CODES.md](CODES.md) lists all 61 of them with severity and meaning; a test keeps that list from drifting out of date.
 
 ## Commands

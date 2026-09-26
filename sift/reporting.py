@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .findings import Finding, Severity, sort_findings
 from .loading import Table
-from .text import plural
+from .text import plural, terminal_safe
 
 ANSI = {
     Severity.ERROR: "\033[31m",
@@ -75,7 +75,7 @@ def render_text(table: Table, findings: list[Finding], color: bool | None = None
         return f"{code}{text}{RESET}" if color else text
 
     lines = [
-        paint(str(table.path), BOLD)
+        paint(terminal_safe(table.path), BOLD)
         + paint(
             f"  {plural(table.n_rows, 'row')}, "
             f"{plural(len(table.columns), 'column')}",
@@ -90,12 +90,12 @@ def render_text(table: Table, findings: list[Finding], color: bool | None = None
 
     for finding in sort_findings(findings):
         label = paint(f"{finding.severity.value:<7}", ANSI[finding.severity])
-        where = finding.column or "file"
-        lines.append(f"{label} {paint(finding.code, BOLD)}  {paint(where, DIM)}")
-        for line in textwrap.wrap(finding.message, width=width - 8):
+        where = terminal_safe(finding.column or "file")
+        lines.append(f"{label} {paint(terminal_safe(finding.code), BOLD)}  {paint(where, DIM)}")
+        for line in textwrap.wrap(terminal_safe(finding.message), width=width - 8):
             lines.append(f"        {line}")
         if finding.examples:
-            shown = ", ".join(e for e in finding.examples)
+            shown = ", ".join(terminal_safe(e) for e in finding.examples)
             for i, line in enumerate(textwrap.wrap(shown, width=width - 16)):
                 prefix = "        e.g. " if i == 0 else "             "
                 lines.append(paint(prefix + line, DIM))

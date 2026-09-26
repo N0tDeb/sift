@@ -96,7 +96,11 @@ def compare(baseline: Table, current: Table, config: Config) -> list[Finding]:
             old_stats, new_stats = old_p.stats(), new_p.stats()
             old_median = old_stats.get("median")
             new_median = new_stats.get("median")
-            if old_median and new_median:
+            # Relative movement is well-defined when the baseline median is
+            # non-zero, including when the current median has fallen to zero.
+            # A zero baseline has no meaningful percentage denominator, so do
+            # not invent an absolute threshold here.
+            if old_median is not None and old_median != 0 and new_median is not None:
                 shift = abs(new_median - old_median) / abs(old_median)
                 if shift >= MEDIAN_SHIFT:
                     findings.append(

@@ -46,8 +46,9 @@ from sift.profiling import (
 )
 from sift.references import Reference, ReferenceError, check_reference
 from sift.repair import HIGH, MEDIUM, plain_number, plan_repairs, write_csv
-from sift.reporting import render_html
+from sift.reporting import render_html, render_text
 from sift.sources import discover, load_any
+from sift.text import terminal_safe
 
 CLEAN = """\
 order_id,customer,order_date,region,quantity,order_total
@@ -306,6 +307,16 @@ def test_ignore_columns_is_scoped(tmp_path):
     )
     columns = {f.column for f in findings if f.code == "label-variants"}
     assert columns == {"city"}
+
+
+def test_ignore_columns_uses_literal_column_names_not_a_wildcard():
+    config = Config(
+        ignore=["outliers"],
+        ignore_columns={"whitespace": ["*"]},
+    )
+    assert not config.silenced("whitespace", "region")
+    assert config.silenced("whitespace", "*")
+    assert config.silenced("outliers", "region")
 
 
 def test_empty_file_is_an_error_not_a_finding(tmp_path):
@@ -1408,6 +1419,61 @@ def test_html_report_escapes_hostile_values(tmp_path):
     assert "&lt;script&gt;" in report
 
 
+def test_text_report_escapes_terminal_control_sequences(tmp_path):
+    path = tmp_path / "hostile.csv"
+    path.write_bytes(b"\x1b[31mname\x1b[0m,note\n value ,\x07alarm \n")
+    table = load(path)
+    report = render_text(table, run_checks(table, Config()), color=False)
+
+    assert "\x1b" not in report
+    assert "\x07" not in report
+    assert r"\x1b[31mname\x1b[0m" in report
+    assert r"\x07alarm " in report
+
+
+def test_cli_profile_escapes_controls_in_paths_and_column_names(tmp_path, capsys):
+    path = tmp_path / "evil\x1b[31m.csv"
+    path.write_bytes(b"col\x1b[2J\nvalue\n")
+
+    assert main(["profile", str(path)]) == 0
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert r"\x1b[31m" in output
+    assert r"col\x1b[2J" in output
+
+
+def test_cli_fix_dry_run_escapes_controls_in_repair_plan(tmp_path, capsys):
+    path = tmp_path / "repair.csv"
+    path.write_bytes(b"name\x1b[31m\n value \n")
+
+    assert main(["fix", str(path), "--dry-run"]) == 0
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert r"name\x1b[31m" in output
+
+
+def test_terminal_safe_makes_unicode_format_controls_visible():
+    assert terminal_safe("left\u202eright") == r"left\u202eright"
+    assert terminal_safe("developer 👩\u200d💻") == "developer 👩\u200d💻"
+
+
+def test_init_config_escapes_controls_and_round_trips_column_names(tmp_path):
+    column = "zip\x1b[31m"
+    path = tmp_path / "base.csv"
+    path.write_text(
+        f"id,{column}\nA-1,02134\nA-2,07094\nA-3,10001\n",
+        encoding="utf-8",
+    )
+    table = load(path)
+    body = build_config(table, run_checks(table, Config()))
+    config_path = tmp_path / "sift.toml"
+    config_path.write_text(body, encoding="utf-8")
+    learned = load_config(config_path)
+
+    assert "\x1b" not in body
+    assert column in learned.ignore_columns["leading-zeros"]
+
+
 # --- audit regressions: configuration --------------------------------------
 
 
@@ -1663,6 +1729,12 @@ def test_drift_reports_a_null_rate_jump(tmp_path):
 def test_drift_reports_a_distribution_shift(tmp_path):
     baseline = "a\n" + "\n".join(str(100 + i) for i in range(10)) + "\n"
     current = "a\n" + "\n".join(str(1000 + i) for i in range(10)) + "\n"
+    assert "distribution-shift" in _drift(tmp_path, baseline, current)
+
+
+def test_drift_reports_when_numeric_median_falls_to_zero(tmp_path):
+    baseline = "a\n" + "\n".join("100" for _ in range(9)) + "\n"
+    current = "a\n" + "\n".join("0" for _ in range(9)) + "\n"
     assert "distribution-shift" in _drift(tmp_path, baseline, current)
 
 

@@ -31,7 +31,7 @@ from .references import Reference, ReferenceError, check_reference
 from .repair import HIGH, MEDIUM, plan_repairs, render_plan, write_csv, write_log
 from .reporting import render_json, render_text, summarize, write_report
 from .sources import EXCEL_SUFFIXES, PARQUET_SUFFIXES, SUPPORTED, discover, load_any
-from .text import fmt_number, plural
+from .text import fmt_number, plural, terminal_safe
 
 THRESHOLDS = {"error": 3, "warning": 2, "info": 1, "none": 99}
 assert set(THRESHOLDS) == set(FAIL_ON_LEVELS)  # the CLI and the config agree
@@ -215,7 +215,7 @@ def _profile_row(profile: ColumnProfile) -> str:
             f"  range {fmt_number(stats['min'])} to {fmt_number(stats['max'])}"
         )
     return (
-        f"{profile.name[:28]:<28} {profile.kind:<12} "
+        f"{terminal_safe(profile.name)[:28]:<28} {profile.kind:<12} "
         f"{profile.null_rate:>6.1%} null  {profile.distinct:>7,} distinct{extra}"
     )
 
@@ -261,19 +261,22 @@ def check_many(targets: list[Path], config: Config, args: argparse.Namespace) ->
         body = json.dumps(payload, indent=2, default=str)
         if args.output:
             args.output.write_text(body, encoding="utf-8")
-            print(f"Wrote {args.output}")
+            print(f"Wrote {terminal_safe(args.output)}")
         else:
             print(body)
     else:
-        width = max(len(str(path)) for path, _ in results) if results else 20
+        display_paths = {path: terminal_safe(path) for path, _ in results}
+        width = max(len(display_paths[path]) for path, _ in results) if results else 20
         for path, findings in results:
             counts = summarize(findings)
             tally = ", ".join(
                 f"{counts[k]} {k}" for k in ("error", "warning", "info") if counts[k]
             )
-            print(f"{str(path):<{width}}  {tally or 'clean'}")
+            print(f"{display_paths[path]:<{width}}  {tally or 'clean'}")
         for path, error in failures:
-            print(f"{str(path):<{width}}  unreadable: {error}")
+            safe_path = terminal_safe(path)
+            width = max(width, len(safe_path))
+            print(f"{safe_path:<{width}}  unreadable: {terminal_safe(error)}")
 
         spread: Counter = Counter()
         for _, findings in results:
@@ -297,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "profile":
             table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
             print(
-                f"{table.path}  {plural(table.n_rows, 'row')}, "
+                f"{terminal_safe(table.path)}  {plural(table.n_rows, 'row')}, "
                 f"{plural(len(table.columns), 'column')}"
             )
             print()
@@ -329,13 +332,14 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.output.exists() and not args.force:
                 print(
-                    f"sift: {args.output} already exists. Pass --force to replace it.",
+                    f"sift: {terminal_safe(args.output)} already exists. "
+                    "Pass --force to replace it.",
                     file=sys.stderr,
                 )
                 return 2
             args.output.write_text(body, encoding="utf-8")
             print()
-            print(f"Wrote {args.output}. Read it, then commit it.")
+            print(f"Wrote {terminal_safe(args.output)}. Read it, then commit it.")
             return 0
 
         if args.command == "impact":
@@ -362,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
                 # Refusing here rather than writing a plausible-looking file: the
                 # rows Sift could not parse were padded or truncated on read, so
                 # rewriting would make that loss permanent and invisible.
-                print(f"sift: {ragged[0].message}", file=sys.stderr)
+                print(f"sift: {terminal_safe(ragged[0].message)}", file=sys.stderr)
                 print(
                     "sift: refusing to rewrite a file that did not parse cleanly. "
                     "Fix the quoting at the source, or pass --force to accept the "
@@ -380,7 +384,8 @@ def main(argv: list[str] | None = None) -> int:
             # tool downstream will open, fail on, and blame them for.
             if args.output and args.output.suffix.lower() in NON_CSV_SUFFIXES:
                 print(
-                    f"sift: fix writes delimited text, so {args.output.name} would "
+                    f"sift: fix writes delimited text, so "
+                    f"{terminal_safe(args.output.name)} would "
                     "not be a real workbook. Choose a .csv or .tsv path.",
                     file=sys.stderr,
                 )
@@ -427,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"{len(plan.refusals)} left for a human."
             )
             if args.log:
-                print(f"Audit log: {args.log}")
+                print(f"Audit log: {terminal_safe(args.log)}")
             return 0
 
         if args.command == "check":
@@ -456,7 +461,10 @@ def main(argv: list[str] | None = None) -> int:
                 report = write_report(table, findings, args.format, args.output)
                 if args.output:
                     summary = summarize(findings)
-                    print(f"Wrote {args.output} ({summary['total']} findings).")
+                    print(
+                        f"Wrote {terminal_safe(args.output)} "
+                        f"({summary['total']} findings)."
+                    )
                 else:
                     print(report)
                 return exit_code(findings, config)
@@ -489,7 +497,10 @@ def main(argv: list[str] | None = None) -> int:
                 report = render_text(view, findings)
             if args.output:
                 args.output.write_text(report, encoding="utf-8")
-                print(f"Wrote {args.output} ({len(findings)} findings).")
+                print(
+                    f"Wrote {terminal_safe(args.output)} "
+                    f"({len(findings)} findings)."
+                )
             else:
                 print(report)
             return exit_code(findings, config)
@@ -510,7 +521,7 @@ def main(argv: list[str] | None = None) -> int:
         # which is exit 2 — deliberately distinct from exit 1, "we did the job
         # and the file has problems". A pipeline must be able to tell a broken
         # tool from broken data.
-        print(f"sift: {exc}", file=sys.stderr)
+        print(f"sift: {terminal_safe(exc)}", file=sys.stderr)
         return 2
 
     return 2

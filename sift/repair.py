@@ -50,7 +50,7 @@ from .profiling import (
     infer_date_order,
     infer_number_convention,
 )
-from .text import plural
+from .text import plural, terminal_safe
 
 HIGH = "high"
 MEDIUM = "medium"
@@ -441,7 +441,7 @@ def write_log(
 
 
 def render_plan(table: Table, plan: RepairPlan, destination: str) -> str:
-    lines = [f"{table.path} to {destination}", ""]
+    lines = [f"{terminal_safe(table.path)} to {terminal_safe(destination)}", ""]
     grouped = plan.by_rule()
     if not grouped and not plan.dropped_lines:
         lines.append("Nothing to change.")
@@ -450,7 +450,8 @@ def render_plan(table: Table, plan: RepairPlan, destination: str) -> str:
         lines.append(f"{plural(total, 'cell')} changed")
         for rule, changes in sorted(grouped.items(), key=lambda kv: -len(kv[1])):
             columns = sorted({change.column for change in changes})
-            shown = ", ".join(columns[:3]) + (", ..." if len(columns) > 3 else "")
+            shown = ", ".join(terminal_safe(column) for column in columns[:3])
+            shown += ", ..." if len(columns) > 3 else ""
             confidence = changes[0].confidence
             lines.append(f"  {rule:<17} {len(changes):>5}  {confidence:<7} {shown}")
         if plan.dropped_lines:
@@ -461,10 +462,11 @@ def render_plan(table: Table, plan: RepairPlan, destination: str) -> str:
         lines.append("")
         lines.append(f"Left alone ({len(plan.refusals)}):")
         for refusal in plan.refusals:
-            where = refusal.column or "file"
-            lines.append(f"  {where} [{refusal.rule}]")
+            where = terminal_safe(refusal.column or "file")
+            lines.append(f"  {where} [{terminal_safe(refusal.rule)}]")
             lines.extend(
-                textwrap.wrap(refusal.reason, width=width - 4, initial_indent="    ",
+                textwrap.wrap(terminal_safe(refusal.reason), width=width - 4,
+                              initial_indent="    ",
                               subsequent_indent="    ")
             )
     return "\n".join(lines)

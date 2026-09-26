@@ -42,7 +42,7 @@ class Config:
     max_examples: int = 3
     key: list[str] = field(default_factory=list)
     ignore: list[str] = field(default_factory=list)
-    # code -> list of columns exempt from it; "*" exempts everywhere.
+    # code -> list of named columns exempt from it; use `ignore` for global exemptions.
     ignore_columns: dict[str, list[str]] = field(default_factory=dict)
     fail_on: str = "error"
 
