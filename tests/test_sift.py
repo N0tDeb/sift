@@ -12,9 +12,9 @@ from __future__ import annotations
 import json
 import re
 import sys
-import types
 import textwrap
 import time
+import types
 from datetime import datetime
 from pathlib import Path
 
@@ -1595,6 +1595,168 @@ def test_every_subcommand_is_in_the_readme():
     assert not missing, f"subcommands missing from README: {sorted(missing)}"
 
 
+def test_readme_finding_count_matches_codes_documentation():
+    root = Path(__file__).resolve().parent.parent
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    documented = re.findall(
+        r"^\| `([a-z0-9-]+)` \|",
+        (root / "CODES.md").read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    match = re.search(r"lists all (\d+) of them", readme)
+    assert match, "README no longer states the documented finding-code count"
+    assert int(match.group(1)) == len(documented)
+    assert not re.search(r"\b\d+ tests\b", readme), (
+        "README should not hard-code the test count; it changes whenever a "
+        "regression test is added."
+    )
+
+
+def test_readme_quickstart_summary_matches_example(capsys, monkeypatch):
+    root = Path(__file__).resolve().parent.parent
+    monkeypatch.chdir(root)
+    assert main(["check", "examples/orders_messy.csv", "--key", "order_id"]) == 1
+    output = capsys.readouterr().out
+    summary = next(line for line in output.splitlines() if " findings:" in line)
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert summary in readme
+    assert "error   conflicting-date-formats  order_date" in readme
+    assert "error   ambiguous-dates  order_date" not in readme
+
+
+def test_workflow_readme_matches_data_gate_commands():
+    from sift.cli import build_parser
+
+    root = Path(__file__).resolve().parent.parent
+    parser = build_parser()
+    commands = {
+        name
+        for action in parser._actions
+        if getattr(action, "dest", None) == "command"
+        for name in action.choices
+    }
+    workflow_doc = (root / ".github/workflows/README.md").read_text(encoding="utf-8")
+    documented = {
+        name
+        for name in re.findall(r"`([a-z-]+)`", workflow_doc)
+        if name in commands
+    }
+    ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    actual = set(re.findall(r"run:\s*sift\s+([a-z-]+)", ci))
+    assert documented == actual
+
+
+def test_committed_benchmark_markdown_matches_generator():
+    from bench.run import markdown, run
+
+    root = Path(__file__).resolve().parent.parent
+    results, noise = run()
+    generated = markdown(results, noise)
+    committed = (root / "BENCHMARK.md").read_text(encoding="utf-8")
+    assert committed == generated
+
+
+def test_readme_documents_cross_file_references():
+    root = Path(__file__).resolve().parent.parent
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert "--references FILE:LOCAL=FOREIGN" in readme
+    assert "cross-file referential integrity" not in readme.lower()
+
+
+def test_ci_builds_and_smoke_tests_installed_wheel():
+    root = Path(__file__).resolve().parent.parent
+    ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    workflow_doc = (root / ".github/workflows/README.md").read_text(encoding="utf-8")
+
+    assert "  package:\n" in ci
+    assert "python -m pip wheel . --no-deps --wheel-dir dist" in ci
+    assert 'python -m venv "$RUNNER_TEMP/sift-wheel"' in ci
+    assert 'pip install --no-deps dist/*.whl' in ci
+    assert 'smoke_dir="$(mktemp -d)"' in ci
+    assert 'cd "$smoke_dir"' in ci
+    assert '"$RUNNER_TEMP/sift-wheel/bin/sift" --help' in ci
+    assert '"$RUNNER_TEMP/sift-wheel/bin/python" -m pip check' in ci
+    assert "**package**" in workflow_doc
+
+
+def test_ci_actions_are_pinned_and_credentials_are_not_persisted():
+    root = Path(__file__).resolve().parent.parent
+    workflows = sorted((root / ".github/workflows").glob("*.yml"))
+    workflow_text = {path.name: path.read_text(encoding="utf-8") for path in workflows}
+    all_uses = []
+    for name, text in workflow_text.items():
+        uses = re.findall(
+            r"^\s*- uses: ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([^\s#]+)",
+            text,
+            re.MULTILINE,
+        )
+        all_uses.extend((name, action, ref) for action, ref in uses)
+        checkout_count = sum(action == "actions/checkout" for action, _ in uses)
+        assert text.count("persist-credentials: false") == checkout_count
+        assert "permissions:\n  contents: read\n" in text
+
+    assert all_uses, "Workflows should use at least one external action"
+    unpinned = [
+        (name, action, ref)
+        for name, action, ref in all_uses
+        if not re.fullmatch(r"[0-9a-f]{40}", ref)
+    ]
+    assert not unpinned, f"GitHub Actions must use full commit SHAs: {unpinned}"
+
+
+
+def test_intentionally_messy_fixture_is_not_git_normalized():
+    root = Path(__file__).resolve().parent.parent
+    attributes = (root / ".gitattributes").read_text(encoding="utf-8")
+    assert "examples/orders_messy.csv -text" in attributes
+
+
+def test_github_issue_template_uses_current_chooser_layout():
+    root = Path(__file__).resolve().parent.parent
+    legacy = root / ".github/ISSUE_TEMPLATE.md"
+    templates = sorted((root / ".github/ISSUE_TEMPLATE").glob("*.md"))
+
+    assert not legacy.exists()
+    assert templates
+    for template in templates:
+        text = template.read_text(encoding="utf-8")
+        assert text.startswith("---\n")
+        assert re.search(r"^name:\s*\S", text, re.MULTILINE)
+        assert re.search(r"^about:\s*\S", text, re.MULTILINE)
+
+
+def test_python_classifiers_cover_ci_matrix():
+    import tomllib
+
+    root = Path(__file__).resolve().parent.parent
+    metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    classifiers = set(metadata["project"]["classifiers"])
+    ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    match = re.search(r'python-version: \[(.*?)\]', ci)
+    assert match is not None
+    versions = re.findall(r'"(\d+\.\d+)"', match.group(1))
+    assert versions
+    for version in versions:
+        assert f"Programming Language :: Python :: {version}" in classifiers
+
+
+def test_release_version_has_one_source_of_truth():
+    import tomllib
+
+    import sift
+
+    root = Path(__file__).resolve().parent.parent
+    metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    project = metadata["project"]
+    hatch_version = metadata["tool"]["hatch"]["version"]
+
+    assert "version" not in project
+    assert "version" in project["dynamic"]
+    assert hatch_version["path"] == "sift/__init__.py"
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)?", sift.__version__)
+
+
+
 # --- audit regressions: adversarial and degenerate input -------------------
 
 
@@ -1732,6 +1894,32 @@ def test_init_config_escapes_controls_and_round_trips_column_names(tmp_path):
 
     assert "\x1b" not in body
     assert column in learned.ignore_columns["leading-zeros"]
+
+
+@pytest.mark.parametrize(
+    ("argv", "handler_name"),
+    [
+        (["profile", "data.csv"], "_run_profile"),
+        (["init", "data.csv"], "_run_init"),
+        (["impact", "data.csv", "--sum", "value"], "_run_impact"),
+        (["fix", "data.csv", "--dry-run"], "_run_fix"),
+        (["check", "data.csv"], "_run_check"),
+        (["diff", "baseline.csv", "current.csv"], "_run_diff"),
+    ],
+)
+def test_cli_main_dispatches_every_command_to_its_handler(monkeypatch, argv, handler_name):
+    import sift.cli as cli_module
+
+    seen = []
+
+    def fake_handler(args):
+        seen.append(args.command)
+        return 17
+
+    monkeypatch.setattr(cli_module, handler_name, fake_handler)
+
+    assert cli_module.main(argv) == 17
+    assert seen == [argv[0]]
 
 
 def test_cli_profile_reports_basic_table_shape(tmp_path, capsys):
@@ -2134,12 +2322,10 @@ def test_sensitive_findings_never_include_example_values(tmp_path):
 def test_sensitive_columns_redact_values_from_other_findings(tmp_path):
     findings = lint(
         tmp_path,
-        """\
-        customer
-         alice@example.com 
-         bob@example.com 
-         carol@example.com 
-        """,
+        "customer\n"
+        " alice@example.com \n"
+        " bob@example.com \n"
+        " carol@example.com \n",
     )
 
     whitespace = next(f for f in findings if f.code == "whitespace")
@@ -2152,12 +2338,10 @@ def test_sensitive_columns_redact_values_from_other_findings(tmp_path):
 def test_silencing_sensitive_warning_does_not_reenable_value_output(tmp_path):
     findings = lint(
         tmp_path,
-        """\
-        customer
-         alice@example.com 
-         bob@example.com 
-         carol@example.com 
-        """,
+        "customer\n"
+        " alice@example.com \n"
+        " bob@example.com \n"
+        " carol@example.com \n",
         Config(ignore=["sensitive-data"]),
     )
 
@@ -2170,12 +2354,10 @@ def test_silencing_sensitive_warning_does_not_reenable_value_output(tmp_path):
 def test_fix_audit_log_redacts_sensitive_values_but_keeps_other_values(tmp_path):
     source = write(
         tmp_path,
-        """\
-        id,customer,region
-        1," alice@example.com "," North "
-        2," bob@example.com ",South
-        3," carol@example.com ",West
-        """,
+        "id,customer,region\n"
+        '1," alice@example.com "," North "\n'
+        '2," bob@example.com ",South\n'
+        '3," carol@example.com ",West\n',
     )
     output = tmp_path / "fixed.csv"
     audit = tmp_path / "audit.csv"

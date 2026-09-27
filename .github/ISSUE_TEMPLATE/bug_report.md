@@ -1,3 +1,8 @@
+---
+name: Bug report
+about: Report an incorrect finding, crash, or other Sift problem
+---
+
 <!-- For a false positive — Sift reporting something that is actually fine —
      please include the smallest CSV that reproduces it. That case usually
      becomes a permanent regression test. -->

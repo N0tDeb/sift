@@ -1,20 +1,19 @@
 # Publishing this repository
 
-Two things need your details before the first push.
+The GitHub account is already configured as `N0tDeb`. The demo is optional.
 
 ## 1. The CI badge
 
-`README.md` has five badges at the top. The first points at a GitHub Actions
-run and contains a placeholder:
+`README.md` has four badges at the top. The CI badge is already configured for:
 
 ```
-https://github.com/USERNAME/sift/actions/workflows/ci.yml/badge.svg
+https://github.com/N0tDeb/sift/actions/workflows/ci.yml/badge.svg
 ```
 
-Replace `USERNAME` with your GitHub username in both the image URL and the link
-beside it. The other four badges are static and need no changes.
+If you use a repository name other than `sift`, update that path segment in both
+the badge image URL and its link. The other three badges are static and need no changes.
 
-## 2. The demo GIF
+## 2. The demo GIF (optional)
 
 The README has a commented-out image at the top. Record it and uncomment:
 
@@ -24,9 +23,9 @@ pip install -e .
 vhs demo/demo.tape        # writes demo/sift.gif
 ```
 
-See `demo/README.md` for what the recording shows and why. The GIF is not
-committed to the repository, because it is generated — re-record it whenever
-output formatting changes.
+See `demo/README.md` for what the recording shows and why. If you uncomment
+the README image, commit `demo/sift.gif` so GitHub can render it, and re-record
+the GIF whenever output formatting changes.
 
 ## Pushing
 
@@ -35,21 +34,18 @@ git init
 git add .
 git commit -m "Sift: a linter for tabular data"
 git branch -M main
-git remote add origin git@github.com:USERNAME/sift.git
+git remote add origin git@github.com:N0tDeb/sift.git  # adjust the repo name if needed
 git push -u origin main
 ```
 
 The workflow in `.github/workflows/ci.yml` runs on the first push: tests on
-Python 3.11, 3.12 and 3.13, `ruff`, the recall benchmark, and Sift against its
-own example files. The badge turns green when it passes.
+Python 3.11, 3.12 and 3.13, `ruff`, the recall benchmark, a wheel build/install
+smoke test, and Sift against its own example files. The badge turns green when
+it passes.
 
-## Optional: publishing to PyPI
+## CI security settings
 
-`pyproject.toml` is already complete. The package name `sift-csv` may be taken
-by the time you read this — check on pypi.org and change `name` if so.
-
-```bash
-pip install build twine
-python -m build
-twine upload dist/*
-```
+The committed workflow uses read-only `GITHUB_TOKEN` permissions, disables
+checkout credential persistence, and pins GitHub Actions to immutable commit
+SHAs. These settings reduce unnecessary CI permissions and keep workflow
+dependencies explicit.

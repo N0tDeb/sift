@@ -1,0 +1,3 @@
+# This fixture intentionally mixes CRLF/LF and contains trailing whitespace.
+# Treat it as data so Git never normalizes the bytes on checkout or commit.
+examples/orders_messy.csv -text

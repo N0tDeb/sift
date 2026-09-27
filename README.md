@@ -1,9 +1,8 @@
 # Sift
 
-[![CI](https://github.com/USERNAME/sift/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/sift/actions/workflows/ci.yml)
+[![CI](https://github.com/N0tDeb/sift/actions/workflows/ci.yml/badge.svg)](https://github.com/N0tDeb/sift/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-172-brightgreen.svg)](tests/test_sift.py)
 [![Benchmark](https://img.shields.io/badge/recall-28%2F28-brightgreen.svg)](BENCHMARK.md)
 
 <!-- Record with `vhs demo/demo.tape`, then uncomment. See demo/README.md. -->
@@ -42,10 +41,12 @@ error   key-not-unique  order_id
         Key column 'order_id' repeats 2 values. Joining on it will multiply rows.
         e.g. A-1033, A-1036
 
-error   ambiguous-dates  order_date
-        'order_date' can be read as either day-first or month-first: 12 rows valid
-        both ways, and others that are not. The file does not say which was meant,
-        so half your dates may land in the wrong month.
+error   conflicting-date-formats  order_date
+        'order_date' holds two date formats mixed together. 12 rows can only be day-
+        first and 9 can only be month-first, so no single reading fits. The column holds
+        two formats mixed together and cannot be repaired without knowing which rows
+        came from where. Every row is individually valid, so nothing will error — the
+        dates will simply be wrong.
         e.g. 07/05/2024, 07/01/2024, 04/04/2024
 
 error   mixed-types  quantity
@@ -63,14 +64,14 @@ warning leading-zeros  zip
         number destroys them — keep it text.
         e.g. 02134, 07094, 02139
 
-24 findings: 6 error, 14 warning, 4 info
+23 findings: 6 error, 14 warning, 3 info
 ```
 
 `--format html` writes a standalone report you can send to whoever owns the data — [sample-report.html](sample-report.html) is one, generated from the example file. `--format json` is for everything else.
 
 Terminal output treats file names, column names and example values as untrusted text: control and Unicode format characters are shown as visible escapes (for example `\\x1b`) instead of being sent to the terminal as control sequences.
 
-Every finding has a stable code. [CODES.md](CODES.md) lists all 61 of them with severity and meaning; a test keeps that list from drifting out of date.
+Every finding has a stable code. [CODES.md](CODES.md) lists all 63 of them with severity and meaning; a test keeps that list from drifting out of date.
 
 ## Commands
 
@@ -84,6 +85,8 @@ Every finding has a stable code. [CODES.md](CODES.md) lists all 61 of them with 
 | `sift profile FILE` | Describe every column — type, null rate, cardinality, range. No judgement. |
 
 Useful flags: `--min-confidence high|medium`, `--dry-run`, `--key ORDER_ID` (must be unique and present), `--format text|json|html`, `--output PATH`, `--fail-on error|warning|info|none`, `--ignore CODE`.
+
+Cross-file references are checked with `--references FILE:LOCAL=FOREIGN`. For example, while checking `orders.csv`, `--references customers.csv:customer_id=id` verifies that every non-empty `orders.customer_id` exists in `customers.id`; broken, non-unique, and normalization-only matches are reported with stable reference finding codes.
 
 ## Other formats, and whole folders
 
@@ -352,7 +355,7 @@ optional Excel/Parquet dependencies are still required for those formats.
 
 Performance is adequate, not exceptional: roughly 29 seconds and 340 MB of memory for an 18 MB, 126,000-row file on one core, down from four minutes before the parsers were profiled. Holding every value as a Python string costs roughly 20x the file size in memory, which is the price of reading everything as text. Files in the tens of megabytes are comfortable; gigabytes are not what this is for.
 
-Heuristics, not proofs. Sift can tell you a date column is undecidable; it cannot tell you which reading is right when the file contains no evidence either way — that lives in a system it can't see, which is exactly why `fix` refuses the case rather than guessing. Raw CSV byte diagnostics are streamed and `--max-rows` stops row ingestion early, but the retained rows and their profiles are still held in memory; Sift is therefore built for the megabyte-to-hundreds-of-megabytes range these files actually live in, not for warehouse-scale data. Column-name heuristics (`quantity` implies non-negative) are English-only, and number parsing covers the comma and dot conventions but not space-grouped forms like `1 234,56`. Excel support reads one sheet at a time and names the others rather than checking them, and the old binary `.xls` format is not supported at all. And while `check` will take a whole folder, cross-file referential integrity — a key in one file resolving against another — is not implemented.
+Heuristics, not proofs. Sift can tell you a date column is undecidable; it cannot tell you which reading is right when the file contains no evidence either way — that lives in a system it can't see, which is exactly why `fix` refuses the case rather than guessing. Raw CSV byte diagnostics are streamed and `--max-rows` stops row ingestion early, but the retained rows and their profiles are still held in memory; Sift is therefore built for the megabyte-to-hundreds-of-megabytes range these files actually live in, not for warehouse-scale data. Column-name heuristics (`quantity` implies non-negative) are English-only, and number parsing covers the comma and dot conventions but not space-grouped forms like `1 234,56`. Excel support reads one sheet at a time and names the others rather than checking them, and the old binary `.xls` format is not supported at all. Cross-file reference checks are explicit command-line relationships rather than an inferred schema; each relationship must be declared with `--references`.
 
 ## Measuring accuracy
 
@@ -380,7 +383,7 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-172 tests. The important ones are `test_clean_file_is_quiet`, `test_every_change_is_in_the_audit_log`, and `test_fixing_twice_changes_nothing_the_second_time`, and `test_causes_add_up_to_the_difference`. Every check is easy to fire on broken data; the hard part is not firing on data that's fine, because a linter with false positives gets switched off. And a fixer you can't audit or re-run safely is worse than no fixer.
+The suite includes regression tests for clean-data silence, complete repair audit logging, repair idempotency, and impact accounting. Every check is easy to fire on broken data; the hard part is not firing on data that's fine, because a linter with false positives gets switched off. And a fixer you can't audit or re-run safely is worse than no fixer.
 
 ## Contributing
 
@@ -388,12 +391,12 @@ Issues and pull requests are welcome. Before opening a PR:
 
 ```bash
 pip install -e ".[dev]"
-pytest -q            # 172 tests
+pytest -q            # full test suite
 ruff check .
 python -m bench.run  # recall against known corruptions
 ```
 
-Three of those tests exist to stop documentation drifting: a new finding code fails the build unless it is listed in [CODES.md](CODES.md) *and* covered by a test or a benchmark case, and a new subcommand fails the build unless the README mentions it. If one of them fails, it is telling you something real.
+Documentation regression tests also stop public behavior from drifting silently: finding codes must stay synchronized with [CODES.md](CODES.md), subcommands must remain documented, the quick-start example is checked against the real fixture, and the workflow description is checked against `ci.yml`. If one of them fails, it is telling you something real.
 
 New checks are judged on one standard above all others: not firing on data that is fine. `bench/` exists to measure that — add a corruption case for anything you add, and run the check against real files before trusting it. Every false positive erodes confidence in every other finding.
 

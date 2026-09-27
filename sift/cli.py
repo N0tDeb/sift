@@ -26,11 +26,10 @@ from .impact import (
     duplicate_impact,
     group_impact,
     prepare_repaired_rows,
+    render as render_impact,
     sum_impact,
 )
-from .impact import render as render_impact
-from .initialize import build as build_config
-from .initialize import describe, summarise
+from .initialize import build as build_config, describe, summarise
 from .loading import LoadError, Table
 from .profiling import ColumnProfile
 from .references import Reference, ReferenceError, check_reference
@@ -323,237 +322,245 @@ def check_many(
     return 2 if failures and not results else code
 
 
+def _run_profile(args: argparse.Namespace) -> int:
+    table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
+    print(
+        f"{terminal_safe(table.path)}  {plural(table.n_rows, 'row')}, "
+        f"{plural(len(table.columns), 'column')}"
+    )
+    print()
+    for column in table.columns:
+        print(_profile_row(column.profile))
+    return 0
+
+
+def _run_init(args: argparse.Namespace) -> int:
+    guard_output(args.output, args.path)
+    table = load_any(args.path, args.delimiter, args.sheet)
+    findings = run_checks(table, Config())
+    _, refusable = describe(findings)
+
+    print(summarise(table, findings, Config()))
+
+    if refusable and not args.force:
+        print()
+        print(
+            "sift: refusing to learn from a file with unresolved problems. "
+            "Pass --force to accept them anyway.",
+            file=sys.stderr,
+        )
+        return 2
+
+    body = build_config(table, findings, args.key or None)
+    if args.dry_run:
+        print()
+        print(body)
+        return 0
+    if args.output.exists() and not args.force:
+        print(
+            f"sift: {terminal_safe(args.output)} already exists. "
+            "Pass --force to replace it.",
+            file=sys.stderr,
+        )
+        return 2
+    args.output.write_text(body, encoding="utf-8")
+    print()
+    print(f"Wrote {terminal_safe(args.output)}. Read it, then commit it.")
+    return 0
+
+
+def _run_impact(args: argparse.Namespace) -> int:
+    if not args.sum and not args.group_by:
+        print("sift: pass --sum COLUMN and/or --group-by COLUMN.", file=sys.stderr)
+        return 2
+    config = resolve_config(args, args.path)
+    table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
+    if args.sum and table.by_key(args.sum) is None:
+        raise ImpactError(f"No column named {args.sum!r} in {table.path}.")
+    if args.group_by and table.by_key(args.group_by) is None:
+        raise ImpactError(f"No column named {args.group_by!r} in {table.path}.")
+    repaired_rows = prepare_repaired_rows(table, config)
+    total = (
+        sum_impact(table, config, args.sum, repaired_rows=repaired_rows)
+        if args.sum
+        else None
+    )
+    groups = (
+        group_impact(
+            table,
+            config,
+            args.group_by,
+            args.sum,
+            repaired_rows=repaired_rows,
+        )
+        if args.group_by
+        else None
+    )
+    duplicates = duplicate_impact(
+        table, config, args.sum, repaired_rows=repaired_rows
+    )
+    print(render_impact(table, total, groups, duplicates))
+    return 0
+
+
+def _run_fix(args: argparse.Namespace) -> int:
+    config = resolve_config(args, args.path)
+    table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
+    ragged = [f for f in table.file_findings if f.code == "ragged-rows"]
+    if ragged and not args.force:
+        # Refusing here rather than writing a plausible-looking file: the
+        # rows Sift could not parse were padded or truncated on read, so
+        # rewriting would make that loss permanent and invisible.
+        print(f"sift: {terminal_safe(ragged[0].message)}", file=sys.stderr)
+        print(
+            "sift: refusing to rewrite a file that did not parse cleanly. "
+            "Fix the quoting at the source, or pass --force to accept the "
+            "truncation.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if not args.output and not args.dry_run:
+        print("sift: pass --output PATH, or --dry-run to preview.", file=sys.stderr)
+        return 2
+
+    # `fix` writes delimited text whatever it read. Letting someone
+    # write CSV bytes to a path ending .xlsx produces a file that every
+    # tool downstream will open, fail on, and blame them for.
+    if args.output and args.output.suffix.lower() in NON_CSV_SUFFIXES:
+        print(
+            f"sift: fix writes delimited text, so "
+            f"{terminal_safe(args.output.name)} would "
+            "not be a real workbook. Choose a .csv or .tsv path.",
+            file=sys.stderr,
+        )
+        return 2
+
+    guard_output(args.output, args.path)
+    guard_output(args.log, args.path)
+
+    plan, rows = plan_repairs(table, config, args.min_confidence, args.drop_duplicates)
+    destination = str(args.output) if args.output else "(dry run)"
+
+    formula_refusals = [
+        refusal for refusal in plan.refusals if refusal.rule == "formula-injection"
+    ]
+    if formula_refusals and not args.dry_run and not args.force:
+        print(render_plan(table, plan, destination))
+        print(
+            "sift: refusing to write a repaired file while spreadsheet-formula "
+            "content remains. Neutralise those cells first, use --dry-run to "
+            "inspect the plan, or pass --force to accept the unresolved risk.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Write before reporting. `sift fix ... | head` closes the pipe part
+    # way through the summary, and a half-printed report must not mean a
+    # file that never got written.
+    if not args.dry_run:
+        write_csv(args.output, table.header, rows, table.delimiter)
+        if args.log:
+            write_log(args.log, plan, sensitive_columns(table))
+
+    print(render_plan(table, plan, destination))
+    if args.dry_run:
+        return 0
+
+    before = run_checks(table, config)
+    after = run_checks(load_any(args.output), config)
+    print()
+    print(
+        f"Findings: {len(before)} before, {len(after)} after. "
+        f"{len(plan.refusals)} left for a human."
+    )
+    if args.log:
+        print(f"Audit log: {terminal_safe(args.log)}")
+    return 0
+
+
+def _run_check(args: argparse.Namespace) -> int:
+    targets = discover(args.paths)
+    if not targets:
+        print(
+            "sift: nothing to check. Supported extensions: "
+            + ", ".join(sorted(SUPPORTED)),
+            file=sys.stderr,
+        )
+        return 2
+
+    config = resolve_config(args, targets[0])
+    references = [Reference.parse(spec) for spec in args.references]
+    reference_load = _cached_reference_loader()
+
+    for target in targets:
+        guard_output(args.output, target)
+
+    if len(targets) == 1:
+        table = load_any(targets[0], args.delimiter, args.sheet, args.max_rows)
+        findings = run_checks(table, config)
+        for reference in references:
+            findings.extend(check_reference(table, reference, config, reference_load))
+        findings = redact_sensitive_findings(findings, sensitive_columns(table))
+        report = write_report(table, findings, args.format, args.output)
+        if args.output:
+            summary = summarize(findings)
+            print(
+                f"Wrote {terminal_safe(args.output)} "
+                f"({summary['total']} findings)."
+            )
+        else:
+            print(report)
+        return exit_code(findings, config)
+
+    return check_many(targets, config, args, references, reference_load)
+
+
+def _run_diff(args: argparse.Namespace) -> int:
+    config = resolve_config(args, args.current)
+    guard_output(args.output, args.baseline, args.current)
+    baseline = load_any(args.baseline, args.delimiter, args.sheet, args.max_rows)
+    current = load_any(args.current, args.delimiter, args.sheet, args.max_rows)
+    findings = redact_sensitive_findings(
+        compare(baseline, current, config), sensitive_columns(current)
+    )
+    view = Table(
+        path=current.path,
+        header=current.header,
+        columns=current.columns,
+        n_rows=current.n_rows,
+        delimiter=current.delimiter,
+    )
+    if args.format == "json":
+        report = render_json(view, findings)
+    elif args.format == "html":
+        from .reporting import render_html
+
+        report = render_html(view, findings)
+    else:
+        report = render_text(view, findings)
+    if args.output:
+        args.output.write_text(report, encoding="utf-8")
+        print(f"Wrote {terminal_safe(args.output)} ({len(findings)} findings).")
+    else:
+        print(report)
+    return exit_code(findings, config)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
-        if args.command == "profile":
-            table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
-            print(
-                f"{terminal_safe(table.path)}  {plural(table.n_rows, 'row')}, "
-                f"{plural(len(table.columns), 'column')}"
-            )
-            print()
-            for column in table.columns:
-                print(_profile_row(column.profile))
-            return 0
-
-        if args.command == "init":
-            guard_output(args.output, args.path)
-            table = load_any(args.path, args.delimiter, args.sheet)
-            findings = run_checks(table, Config())
-            _, refusable = describe(findings)
-
-            print(summarise(table, findings, Config()))
-
-            if refusable and not args.force:
-                print()
-                print(
-                    "sift: refusing to learn from a file with unresolved problems. "
-                    "Pass --force to accept them anyway.",
-                    file=sys.stderr,
-                )
-                return 2
-
-            body = build_config(table, findings, args.key or None)
-            if args.dry_run:
-                print()
-                print(body)
-                return 0
-            if args.output.exists() and not args.force:
-                print(
-                    f"sift: {terminal_safe(args.output)} already exists. "
-                    "Pass --force to replace it.",
-                    file=sys.stderr,
-                )
-                return 2
-            args.output.write_text(body, encoding="utf-8")
-            print()
-            print(f"Wrote {terminal_safe(args.output)}. Read it, then commit it.")
-            return 0
-
-        if args.command == "impact":
-            if not args.sum and not args.group_by:
-                print("sift: pass --sum COLUMN and/or --group-by COLUMN.", file=sys.stderr)
-                return 2
-            config = resolve_config(args, args.path)
-            table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
-            if args.sum and table.by_key(args.sum) is None:
-                raise ImpactError(f"No column named {args.sum!r} in {table.path}.")
-            if args.group_by and table.by_key(args.group_by) is None:
-                raise ImpactError(f"No column named {args.group_by!r} in {table.path}.")
-            repaired_rows = prepare_repaired_rows(table, config)
-            total = (
-                sum_impact(
-                    table, config, args.sum, repaired_rows=repaired_rows
-                )
-                if args.sum
-                else None
-            )
-            groups = (
-                group_impact(
-                    table,
-                    config,
-                    args.group_by,
-                    args.sum,
-                    repaired_rows=repaired_rows,
-                )
-                if args.group_by
-                else None
-            )
-            duplicates = duplicate_impact(
-                table, config, args.sum, repaired_rows=repaired_rows
-            )
-            print(render_impact(table, total, groups, duplicates))
-            return 0
-
-        if args.command == "fix":
-            config = resolve_config(args, args.path)
-            table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
-            ragged = [f for f in table.file_findings if f.code == "ragged-rows"]
-            if ragged and not args.force:
-                # Refusing here rather than writing a plausible-looking file: the
-                # rows Sift could not parse were padded or truncated on read, so
-                # rewriting would make that loss permanent and invisible.
-                print(f"sift: {terminal_safe(ragged[0].message)}", file=sys.stderr)
-                print(
-                    "sift: refusing to rewrite a file that did not parse cleanly. "
-                    "Fix the quoting at the source, or pass --force to accept the "
-                    "truncation.",
-                    file=sys.stderr,
-                )
-                return 2
-
-            if not args.output and not args.dry_run:
-                print("sift: pass --output PATH, or --dry-run to preview.", file=sys.stderr)
-                return 2
-
-            # `fix` writes delimited text whatever it read. Letting someone
-            # write CSV bytes to a path ending .xlsx produces a file that every
-            # tool downstream will open, fail on, and blame them for.
-            if args.output and args.output.suffix.lower() in NON_CSV_SUFFIXES:
-                print(
-                    f"sift: fix writes delimited text, so "
-                    f"{terminal_safe(args.output.name)} would "
-                    "not be a real workbook. Choose a .csv or .tsv path.",
-                    file=sys.stderr,
-                )
-                return 2
-
-            guard_output(args.output, args.path)
-            guard_output(args.log, args.path)
-
-            plan, rows = plan_repairs(
-                table, config, args.min_confidence, args.drop_duplicates
-            )
-            destination = str(args.output) if args.output else "(dry run)"
-
-            formula_refusals = [
-                refusal for refusal in plan.refusals if refusal.rule == "formula-injection"
-            ]
-            if formula_refusals and not args.dry_run and not args.force:
-                print(render_plan(table, plan, destination))
-                print(
-                    "sift: refusing to write a repaired file while spreadsheet-formula "
-                    "content remains. Neutralise those cells first, use --dry-run to "
-                    "inspect the plan, or pass --force to accept the unresolved risk.",
-                    file=sys.stderr,
-                )
-                return 2
-
-            # Write before reporting. `sift fix ... | head` closes the pipe part
-            # way through the summary, and a half-printed report must not mean a
-            # file that never got written.
-            if not args.dry_run:
-                write_csv(args.output, table.header, rows, table.delimiter)
-                if args.log:
-                    write_log(args.log, plan, sensitive_columns(table))
-
-            print(render_plan(table, plan, destination))
-            if args.dry_run:
-                return 0
-
-            before = run_checks(table, config)
-            after = run_checks(load_any(args.output), config)
-            print()
-            print(
-                f"Findings: {len(before)} before, {len(after)} after. "
-                f"{len(plan.refusals)} left for a human."
-            )
-            if args.log:
-                print(f"Audit log: {terminal_safe(args.log)}")
-            return 0
-
-        if args.command == "check":
-            targets = discover(args.paths)
-            if not targets:
-                print(
-                    "sift: nothing to check. Supported extensions: "
-                    + ", ".join(sorted(SUPPORTED)),
-                    file=sys.stderr,
-                )
-                return 2
-
-            config = resolve_config(args, targets[0])
-
-            references = [Reference.parse(spec) for spec in args.references]
-            reference_load = _cached_reference_loader()
-
-            for target in targets:
-                guard_output(args.output, target)
-
-            if len(targets) == 1:
-                table = load_any(targets[0], args.delimiter, args.sheet, args.max_rows)
-                findings = run_checks(table, config)
-                for reference in references:
-                    findings.extend(check_reference(table, reference, config, reference_load))
-                findings = redact_sensitive_findings(findings, sensitive_columns(table))
-                report = write_report(table, findings, args.format, args.output)
-                if args.output:
-                    summary = summarize(findings)
-                    print(
-                        f"Wrote {terminal_safe(args.output)} "
-                        f"({summary['total']} findings)."
-                    )
-                else:
-                    print(report)
-                return exit_code(findings, config)
-
-            return check_many(targets, config, args, references, reference_load)
-
-        if args.command == "diff":
-            config = resolve_config(args, args.current)
-            guard_output(args.output, args.baseline, args.current)
-            baseline = load_any(args.baseline, args.delimiter, args.sheet, args.max_rows)
-            current = load_any(args.current, args.delimiter, args.sheet, args.max_rows)
-            findings = redact_sensitive_findings(
-                compare(baseline, current, config), sensitive_columns(current)
-            )
-            view = Table(
-                path=current.path,
-                header=current.header,
-                columns=current.columns,
-                n_rows=current.n_rows,
-                delimiter=current.delimiter,
-            )
-            if args.format == "json":
-                report = render_json(view, findings)
-            elif args.format == "html":
-                from .reporting import render_html
-
-                report = render_html(view, findings)
-            else:
-                report = render_text(view, findings)
-            if args.output:
-                args.output.write_text(report, encoding="utf-8")
-                print(
-                    f"Wrote {terminal_safe(args.output)} "
-                    f"({len(findings)} findings)."
-                )
-            else:
-                print(report)
-            return exit_code(findings, config)
-
+        handlers = {
+            "profile": _run_profile,
+            "init": _run_init,
+            "impact": _run_impact,
+            "fix": _run_fix,
+            "check": _run_check,
+            "diff": _run_diff,
+        }
+        handler = handlers.get(args.command)
+        return handler(args) if handler is not None else 2
     except BrokenPipeError:
         # `sift check big.csv | head` is a normal thing to do, and should not
         # look like a failure.
@@ -572,8 +579,6 @@ def main(argv: list[str] | None = None) -> int:
         # tool from broken data.
         print(f"sift: {terminal_safe(exc)}", file=sys.stderr)
         return 2
-
-    return 2
 
 
 if __name__ == "__main__":

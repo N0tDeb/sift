@@ -94,7 +94,18 @@ DATE_FORMATS: list[tuple[str, str]] = [
     ("%d %B %Y", "dmy"),
 ]
 
-MOJIBAKE_MARKERS = ("â€™", "â€œ", "â€\x9d", "Ã©", "Ã¨", "Ã¼", "Ã±", "Â£", "Â ", "ï»¿")
+MOJIBAKE_MARKERS = (
+    "â€™",
+    "â€œ",
+    "â€\x9d",
+    "Ã©",
+    "Ã¨",
+    "Ã¼",
+    "Ã±",
+    "Â£",
+    "Â ",
+    "ï»¿",
+)
 
 
 def is_blank(value: str) -> bool:
