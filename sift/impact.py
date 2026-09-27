@@ -109,15 +109,27 @@ def _coerce(values: list[str]) -> tuple[list[float], int]:
     return kept, dropped
 
 
-def _repaired_values(table: Table, config: Config, name: str) -> list[str]:
+def prepare_repaired_rows(table: Table, config: Config) -> list[list[str]]:
+    """Build the medium-confidence repaired snapshot used by impact metrics."""
     _, rows = plan_repairs(table, config, MEDIUM)
+    return rows
+
+
+def _repaired_values(table: Table, rows: list[list[str]], name: str) -> list[str]:
     index = next(i for i, column in enumerate(table.columns) if column.name == name)
     return [row[index] for row in rows]
 
 
-def sum_impact(table: Table, config: Config, column: str) -> SumImpact:
+def sum_impact(
+    table: Table,
+    config: Config,
+    column: str,
+    *,
+    repaired_rows: list[list[str]] | None = None,
+) -> SumImpact:
     raw = _values(table, column)
-    repaired = _repaired_values(table, config, column)
+    rows = repaired_rows if repaired_rows is not None else prepare_repaired_rows(table, config)
+    repaired = _repaired_values(table, rows, column)
 
     coerced, dropped = _coerce(raw)
     loads_as_number = dropped == 0
@@ -171,14 +183,20 @@ def sum_impact(table: Table, config: Config, column: str) -> SumImpact:
 
 
 def group_impact(
-    table: Table, config: Config, column: str, measure: str | None = None
+    table: Table,
+    config: Config,
+    column: str,
+    measure: str | None = None,
+    *,
+    repaired_rows: list[list[str]] | None = None,
 ) -> GroupImpact:
     raw = _values(table, column)
-    repaired = _repaired_values(table, config, column)
+    rows = repaired_rows if repaired_rows is not None else prepare_repaired_rows(table, config)
+    repaired = _repaired_values(table, rows, column)
 
     weights: list[float] = []
     if measure:
-        for value in _repaired_values(table, config, measure):
+        for value in _repaired_values(table, rows, measure):
             parsed = parse_number(value) if not is_blank(value) else None
             weights.append(parsed.value if parsed else 0.0)
     else:
@@ -214,7 +232,13 @@ def group_impact(
     )
 
 
-def duplicate_impact(table: Table, config: Config, measure: str | None) -> DuplicateImpact:
+def duplicate_impact(
+    table: Table,
+    config: Config,
+    measure: str | None,
+    *,
+    repaired_rows: list[list[str]] | None = None,
+) -> DuplicateImpact:
     rows = list(zip(*[column.values for column in table.columns], strict=True))
     counts = Counter(rows)
     extra_indexes = []
@@ -226,7 +250,12 @@ def duplicate_impact(table: Table, config: Config, measure: str | None) -> Dupli
 
     amount = 0.0
     if measure and extra_indexes:
-        values = _repaired_values(table, config, measure)
+        rows_after = (
+            repaired_rows
+            if repaired_rows is not None
+            else prepare_repaired_rows(table, config)
+        )
+        values = _repaired_values(table, rows_after, measure)
         for index in extra_indexes:
             parsed = parse_number(values[index]) if not is_blank(values[index]) else None
             if parsed:

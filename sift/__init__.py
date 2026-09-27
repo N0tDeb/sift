@@ -24,24 +24,24 @@ def lint(path: str | Path, config: Config | None = None, **kwargs) -> list[Findi
     """Check one file and return its findings."""
     from .checks import run_checks
     from .config import Config as _Config
-    from .loading import load
+    from .sources import load_any
 
-    table = load(Path(path), **kwargs)
+    table = load_any(Path(path), **kwargs)
     return run_checks(table, config or _Config())
 
 
 def diff(
-    baseline: str | Path, current: str | Path, config: Config | None = None
+    baseline: str | Path, current: str | Path, config: Config | None = None, **kwargs
 ) -> list[Finding]:
     """Compare a file against a baseline and return what changed."""
     from .checks import sensitive_columns
     from .config import Config as _Config
     from .drift import compare
     from .findings import redact_sensitive_findings
-    from .loading import load
+    from .sources import load_any
 
-    old = load(Path(baseline))
-    new = load(Path(current))
+    old = load_any(Path(baseline), **kwargs)
+    new = load_any(Path(current), **kwargs)
     return redact_sensitive_findings(
         compare(old, new, config or _Config()), sensitive_columns(new)
     )

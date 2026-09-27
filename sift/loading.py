@@ -6,6 +6,7 @@ loader has already guessed its way past it. So Sift looks at the bytes first.
 
 from __future__ import annotations
 
+import codecs
 import csv
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +22,7 @@ DELIMITERS = ",;\t|"
 # The ceiling is raised to something a row can plausibly be, and still bounded
 # so a corrupt file cannot make the parser allocate without limit.
 MAX_FIELD_BYTES = 16 * 1024 * 1024
+BYTE_SCAN_CHUNK = 64 * 1024
 csv.field_size_limit(MAX_FIELD_BYTES)
 
 
@@ -64,12 +66,53 @@ def _sniff_delimiter(sample: str, override: str | None) -> str:
 
 
 def _scan_bytes(path: Path) -> tuple[list[Finding], str]:
-    """Look at the raw bytes before anything decodes them."""
-    findings: list[Finding] = []
-    raw = path.read_bytes()
-    encoding = "utf-8"
+    """Inspect raw bytes incrementally before text decoding/parsing.
 
-    if raw.startswith(b"\xef\xbb\xbf"):
+    Keep the file-level evidence that requires raw bytes without allocating a
+    second whole-file copy. UTF-8 validation uses an incremental decoder so a
+    multibyte character split across chunks is handled exactly like
+    ``bytes.decode``.
+    """
+    findings: list[Finding] = []
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    invalid_utf8_offset: int | None = None
+    prefix = b""
+    total_bytes = 0
+    nul_count = 0
+    crlf = 0
+    newline_count = 0
+    last_byte: int | None = None
+
+    with path.open("rb") as handle:
+        while chunk := handle.read(BYTE_SCAN_CHUNK):
+            if len(prefix) < 3:
+                prefix += chunk[: 3 - len(prefix)]
+
+            nul_count += chunk.count(b"\x00")
+            newline_count += chunk.count(b"\n")
+            crlf += chunk.count(b"\r\n")
+            if last_byte == ord("\r") and chunk[0] == ord("\n"):
+                crlf += 1
+
+            if invalid_utf8_offset is None:
+                pending = decoder.getstate()[0]
+                try:
+                    decoder.decode(chunk, final=False)
+                except UnicodeDecodeError as exc:
+                    invalid_utf8_offset = total_bytes - len(pending) + exc.start
+
+            total_bytes += len(chunk)
+            last_byte = chunk[-1]
+
+    if invalid_utf8_offset is None:
+        pending = decoder.getstate()[0]
+        try:
+            decoder.decode(b"", final=True)
+        except UnicodeDecodeError as exc:
+            invalid_utf8_offset = total_bytes - len(pending) + exc.start
+
+    encoding = "utf-8"
+    if prefix.startswith(b"\xef\xbb\xbf"):
         findings.append(
             Finding(
                 "bom",
@@ -80,34 +123,32 @@ def _scan_bytes(path: Path) -> tuple[list[Finding], str]:
         )
         encoding = "utf-8-sig"
 
-    try:
-        raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
+    if invalid_utf8_offset is not None:
         encoding = "latin-1"
         findings.append(
             Finding(
                 "encoding",
                 Severity.ERROR,
-                f"File is not valid UTF-8 (first bad byte at offset {exc.start}). "
-                "Read as Latin-1 to continue; re-export as UTF-8.",
-                detail={"offset": exc.start},
+                f"File is not valid UTF-8 (first bad byte at offset "
+                f"{invalid_utf8_offset}). Read as Latin-1 to continue; "
+                "re-export as UTF-8.",
+                detail={"offset": invalid_utf8_offset},
             )
         )
 
-    if b"\x00" in raw:
+    if nul_count:
         findings.append(
             Finding(
                 "null-bytes",
                 Severity.ERROR,
-                f"File contains {raw.count(chr(0).encode()):,} NUL byte(s). Text "
-                "files do not, so this is either binary content with the wrong "
-                "extension or a truncated write.",
-                detail={"count": raw.count(b"\x00")},
+                f"File contains {nul_count:,} NUL byte(s). Text files do not, "
+                "so this is either binary content with the wrong extension or "
+                "a truncated write.",
+                detail={"count": nul_count},
             )
         )
 
-    crlf = raw.count(b"\r\n")
-    lf = raw.count(b"\n") - crlf
+    lf = newline_count - crlf
     if crlf and lf:
         findings.append(
             Finding(
@@ -118,7 +159,7 @@ def _scan_bytes(path: Path) -> tuple[list[Finding], str]:
                 detail={"crlf": crlf, "lf": lf},
             )
         )
-    if raw and not raw.endswith((b"\n", b"\r")):
+    if total_bytes and last_byte not in (ord("\n"), ord("\r")):
         findings.append(
             Finding(
                 "no-trailing-newline",
@@ -155,26 +196,24 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
         long_rows: list[int] = []
 
         try:
-            numbered = list(enumerate(reader, start=2))
+            for line_no, row in enumerate(reader, start=2):
+                if not row:
+                    continue
+                if len(row) < width:
+                    short_rows.append(line_no)
+                    row = row + [""] * (width - len(row))
+                elif len(row) > width:
+                    long_rows.append(line_no)
+                    row = row[:width]
+                rows.append(row)
+                if max_rows and len(rows) >= max_rows:
+                    break
         except csv.Error as exc:
             raise LoadError(
                 f"{path.name} could not be parsed as delimited text ({exc}). "
                 "A single field may exceed "
                 f"{MAX_FIELD_BYTES // (1024 * 1024)} MB, or the file may be binary."
             ) from exc
-
-        for line_no, row in numbered:
-            if not row:
-                continue
-            if len(row) < width:
-                short_rows.append(line_no)
-                row = row + [""] * (width - len(row))
-            elif len(row) > width:
-                long_rows.append(line_no)
-                row = row[:width]
-            rows.append(row)
-            if max_rows and len(rows) >= max_rows:
-                break
 
     if short_rows or long_rows:
         ragged = len(short_rows) + len(long_rows)

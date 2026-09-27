@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import types
 import textwrap
 import time
 from datetime import datetime
@@ -725,6 +727,25 @@ def test_group_impact_counts_the_groups_that_should_not_exist(tmp_path):
     assert amount == pytest.approx(750.0)
 
 
+def test_group_impact_builds_one_repair_snapshot(tmp_path, monkeypatch):
+    import sift.impact as impact_module
+
+    table = load(write(tmp_path, MONEY))
+    real_plan = impact_module.plan_repairs
+    calls = 0
+
+    def counted_plan(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_plan(*args, **kwargs)
+
+    monkeypatch.setattr(impact_module, "plan_repairs", counted_plan)
+    impact = group_impact(table, Config(), "region", "total")
+
+    assert impact.groups_after == 2
+    assert calls == 1
+
+
 def test_duplicate_impact_measures_the_inflation(tmp_path):
     table = load(
         write(
@@ -753,6 +774,36 @@ def test_cli_impact_needs_something_to_measure(tmp_path):
     assert main(["impact", str(path), "--no-config"]) == 2
     assert main(["impact", str(path), "--no-config", "--sum", "total"]) == 0
     assert main(["impact", str(path), "--no-config", "--sum", "nope"]) == 2
+
+
+def test_cli_impact_reuses_one_repair_snapshot_across_metrics(tmp_path, monkeypatch):
+    import sift.impact as impact_module
+
+    path = write(tmp_path, MONEY)
+    real_plan = impact_module.plan_repairs
+    calls = 0
+
+    def counted_plan(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_plan(*args, **kwargs)
+
+    monkeypatch.setattr(impact_module, "plan_repairs", counted_plan)
+    assert (
+        main(
+            [
+                "impact",
+                str(path),
+                "--no-config",
+                "--sum",
+                "total",
+                "--group-by",
+                "region",
+            ]
+        )
+        == 0
+    )
+    assert calls == 1
 
 
 # --- regressions found by running against real public datasets -------------
@@ -953,6 +1004,187 @@ def _write_xlsx(path, rows, sheets=("Orders",)):
         wb.create_sheet(extra)
     wb.save(path)
     return path
+
+
+def test_public_api_exports_stable_types():
+    import sift
+    from sift.findings import Finding
+
+    assert sift.Config is Config
+    assert sift.Severity is Severity
+    assert sift.Finding is Finding
+    assert isinstance(sift.__version__, str) and sift.__version__
+
+
+def test_public_lint_uses_supported_format_dispatch_and_sheet_selection(tmp_path):
+    from sift import lint as public_lint
+
+    path = tmp_path / "book.xlsx"
+    _write_xlsx(
+        path,
+        [["id", "name"], [1, "Alice"], [2, "Bob"]],
+        sheets=("Clean", "Messy"),
+    )
+
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.load_workbook(path)
+    ws = wb["Messy"]
+    ws.append(["id", "name"])
+    ws.append([1, " Alice "])
+    ws.append([2, "Bob"])
+    wb.save(path)
+
+    findings = public_lint(path, sheet="Messy")
+    found = codes(findings)
+    assert "whitespace" in found
+    assert "encoding" not in found
+    assert "null-bytes" not in found
+
+
+def test_public_diff_uses_supported_format_dispatch(tmp_path):
+    from sift import diff as public_diff
+
+    baseline = _write_xlsx(
+        tmp_path / "baseline.xlsx",
+        [["id", "name"], [1, "Alice"], [2, "Bob"]],
+    )
+    current = _write_xlsx(
+        tmp_path / "current.xlsx",
+        [["id", "name", "region"], [1, "Alice", "North"], [2, "Bob", "South"]],
+    )
+
+    findings = public_diff(baseline, current)
+    assert "column-added" in codes(findings)
+
+
+def test_csv_max_rows_stops_the_parser_after_the_requested_rows(tmp_path, monkeypatch):
+    path = write(tmp_path, "id,value\n1,one\n2,two\n")
+
+    class GuardedReader:
+        def __init__(self):
+            self.rows = iter([["id", "value"], ["1", "one"]])
+            self.calls = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            self.calls += 1
+            try:
+                return next(self.rows)
+            except StopIteration:
+                raise AssertionError("CSV parser read past max_rows") from None
+
+    reader = GuardedReader()
+    monkeypatch.setattr("sift.loading.csv.reader", lambda *_args, **_kwargs: reader)
+
+    table = load(path, max_rows=1)
+
+    assert table.n_rows == 1
+    assert table.by_key("value").values == ["one"]
+    assert reader.calls == 2  # header + one data row; the tail was never requested
+
+
+def test_excel_max_rows_stops_worksheet_iteration_early(tmp_path, monkeypatch):
+    openpyxl = pytest.importorskip("openpyxl")
+    path = tmp_path / "bounded.xlsx"
+    path.write_bytes(b"placeholder")
+
+    class Worksheet:
+        def iter_rows(self, values_only=False):
+            assert values_only is True
+            yield ("Quarterly Export", None)
+            yield ("id", "value")
+            yield ("1", "one")
+            raise AssertionError("Excel reader consumed rows past max_rows")
+
+    class Workbook:
+        sheetnames = ["Orders"]
+
+        def __init__(self):
+            self.closed = False
+            self.sheet = Worksheet()
+
+        def __getitem__(self, name):
+            assert name == "Orders"
+            return self.sheet
+
+        def close(self):
+            self.closed = True
+
+    workbook = Workbook()
+    monkeypatch.setattr(openpyxl, "load_workbook", lambda *_args, **_kwargs: workbook)
+
+    table = load_any(path, max_rows=1)
+
+    assert table.header == ["id", "value"]
+    assert table.n_rows == 1
+    assert table.by_key("value").values == ["one"]
+    assert workbook.closed
+
+
+def test_parquet_max_rows_uses_a_bounded_batch_read(tmp_path, monkeypatch):
+    class Value:
+        def __init__(self, value):
+            self.value = value
+
+        def as_py(self):
+            return self.value
+
+    class Batch:
+        def __init__(self):
+            self.columns = [
+                [Value("A-1"), Value("A-2")],
+                [Value("1200"), Value("980")],
+            ]
+
+        def column(self, index):
+            return self.columns[index]
+
+    class Field:
+        type = "string"
+
+    class Schema:
+        names = ["id", "amount"]
+
+        def field(self, _name):
+            return Field()
+
+    class ParquetFile:
+        schema_arrow = Schema()
+
+        def __init__(self, path):
+            self.path = path
+            self.batch_size = None
+
+        def iter_batches(self, batch_size):
+            self.batch_size = batch_size
+            yield Batch()
+
+        def read(self):
+            raise AssertionError("Parquet full-table read used despite max_rows")
+
+    instances = []
+
+    def make_parquet(path):
+        parquet = ParquetFile(path)
+        instances.append(parquet)
+        return parquet
+
+    parquet_module = types.ModuleType("pyarrow.parquet")
+    parquet_module.ParquetFile = make_parquet
+    pyarrow_module = types.ModuleType("pyarrow")
+    pyarrow_module.__path__ = []
+    pyarrow_module.parquet = parquet_module
+    monkeypatch.setitem(sys.modules, "pyarrow", pyarrow_module)
+    monkeypatch.setitem(sys.modules, "pyarrow.parquet", parquet_module)
+
+    path = tmp_path / "bounded.parquet"
+    table = load_any(path, max_rows=2)
+
+    assert instances[0].batch_size == 2
+    assert table.n_rows == 2
+    assert table.by_key("amount").values == ["1200", "980"]
 
 
 def test_excel_preamble_rows_are_skipped_and_reported(tmp_path):
@@ -1382,6 +1614,34 @@ def test_nul_bytes_are_reported(tmp_path):
     assert "null-bytes" in codes(run_checks(load(path), Config()))
 
 
+def test_raw_byte_scan_streams_instead_of_using_read_bytes(tmp_path, monkeypatch):
+    path = tmp_path / "streamed.csv"
+    path.write_text("a,b\n1,2\n", encoding="utf-8")
+
+    def fail_read_bytes(self):
+        raise AssertionError("raw byte scan materialized the entire file")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+    assert load(path).n_rows == 1
+
+
+def test_raw_byte_scan_handles_utf8_and_crlf_across_chunk_boundaries(tmp_path, monkeypatch):
+    import sift.loading as loading
+
+    path = tmp_path / "boundaries.csv"
+    raw = b"ab\r\nx\xc3\xa9\n\xff"
+    path.write_bytes(raw)
+    monkeypatch.setattr(loading, "BYTE_SCAN_CHUNK", 3)
+
+    findings, encoding = loading._scan_bytes(path)
+    by_code = {finding.code: finding for finding in findings}
+
+    assert encoding == "latin-1"
+    assert by_code["encoding"].detail == {"offset": raw.index(b"\xff")}
+    assert by_code["mixed-line-endings"].detail == {"crlf": 1, "lf": 1}
+    assert "no-trailing-newline" in by_code
+
+
 def test_a_header_with_no_rows_is_one_finding_not_one_per_column(tmp_path):
     path = tmp_path / "empty.csv"
     path.write_text("a,b,c,d\n", encoding="utf-8")
@@ -1472,6 +1732,82 @@ def test_init_config_escapes_controls_and_round_trips_column_names(tmp_path):
 
     assert "\x1b" not in body
     assert column in learned.ignore_columns["leading-zeros"]
+
+
+def test_cli_profile_reports_basic_table_shape(tmp_path, capsys):
+    path = write(tmp_path, "id,value\n1,10\n2,20\n")
+
+    assert main(["profile", str(path)]) == 0
+    output = capsys.readouterr().out
+    assert "2 rows, 2 columns" in output
+    assert "id" in output
+    assert "value" in output
+
+
+def test_cli_diff_reports_real_changes_as_json(tmp_path, capsys):
+    baseline = write(tmp_path, "id,name\n1,Alice\n2,Bob\n", "baseline.csv")
+    current = write(
+        tmp_path,
+        "id,name,region\n1,Alice,North\n2,Bob,South\n",
+        "current.csv",
+    )
+
+    assert main([
+        "diff", str(baseline), str(current), "--no-config", "--format", "json"
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert any(item["code"] == "column-added" for item in payload["findings"])
+
+
+def test_cli_check_references_exercises_reference_contract(tmp_path, capsys):
+    customers = write(tmp_path, "id\nC-1\nC-2\n", "customers.csv")
+    orders = write(tmp_path, "customer_id\nC-1\nC-9\n", "orders.csv")
+    spec = f"{customers}:customer_id=id"
+
+    assert main([
+        "check", str(orders), "--references", spec, "--no-config", "--format", "json"
+    ]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert any(item["code"] == "orphaned-reference" for item in payload["findings"])
+
+
+def test_cli_reuses_reference_table_within_one_check_command(tmp_path, capsys, monkeypatch):
+    customers = write(tmp_path, "id\nC-1\nC-2\n", "customers.csv")
+    first = write(tmp_path, "customer_id\nC-1\nC-9\n", "orders-a.csv")
+    second = write(tmp_path, "customer_id\nC-2\nC-8\n", "orders-b.csv")
+    spec = f"{customers}:customer_id=id"
+
+    import sift.cli as cli_module
+
+    real_load_any = cli_module.load_any
+    foreign_loads = 0
+
+    def counting_load(path, *args, **kwargs):
+        nonlocal foreign_loads
+        if Path(path) == customers:
+            foreign_loads += 1
+        return real_load_any(path, *args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "load_any", counting_load)
+
+    args = [
+        "check", str(first), str(second), "--references", spec,
+        "--no-config", "--format", "json",
+    ]
+    assert main(args) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert len(payload["files"]) == 2
+    assert all(
+        any(item["code"] == "orphaned-reference" for item in result["findings"])
+        for result in payload["files"]
+    )
+    assert foreign_loads == 1
+
+    # The cache belongs to one command, not the Python process. A second run
+    # must reload the foreign source so changes between invocations are visible.
+    assert main(args) == 1
+    capsys.readouterr()
+    assert foreign_loads == 2
 
 
 # --- audit regressions: configuration --------------------------------------

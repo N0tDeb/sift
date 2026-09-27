@@ -330,7 +330,13 @@ for finding in lint("orders.csv"):
     print(finding.severity.value, finding.code, finding.column, finding.message)
 
 changes = diff("baseline.csv", "today.csv")
+
+# The library uses the same CSV / Excel / Parquet source dispatch as the CLI.
+workbook_findings = lint("orders.xlsx", sheet="Orders")
 ```
+
+`lint()` and `diff()` accept the source options `delimiter`, `sheet` and `max_rows`;
+optional Excel/Parquet dependencies are still required for those formats.
 
 ## Design notes
 
@@ -346,7 +352,7 @@ changes = diff("baseline.csv", "today.csv")
 
 Performance is adequate, not exceptional: roughly 29 seconds and 340 MB of memory for an 18 MB, 126,000-row file on one core, down from four minutes before the parsers were profiled. Holding every value as a Python string costs roughly 20x the file size in memory, which is the price of reading everything as text. Files in the tens of megabytes are comfortable; gigabytes are not what this is for.
 
-Heuristics, not proofs. Sift can tell you a date column is undecidable; it cannot tell you which reading is right when the file contains no evidence either way — that lives in a system it can't see, which is exactly why `fix` refuses the case rather than guessing. It reads the whole file into memory, so it is built for the megabyte-to-hundreds-of-megabytes range that these files actually live in, not for warehouse-scale data. Column-name heuristics (`quantity` implies non-negative) are English-only, and number parsing covers the comma and dot conventions but not space-grouped forms like `1 234,56`. Excel support reads one sheet at a time and names the others rather than checking them, and the old binary `.xls` format is not supported at all. And while `check` will take a whole folder, cross-file referential integrity — a key in one file resolving against another — is not implemented.
+Heuristics, not proofs. Sift can tell you a date column is undecidable; it cannot tell you which reading is right when the file contains no evidence either way — that lives in a system it can't see, which is exactly why `fix` refuses the case rather than guessing. Raw CSV byte diagnostics are streamed and `--max-rows` stops row ingestion early, but the retained rows and their profiles are still held in memory; Sift is therefore built for the megabyte-to-hundreds-of-megabytes range these files actually live in, not for warehouse-scale data. Column-name heuristics (`quantity` implies non-negative) are English-only, and number parsing covers the comma and dot conventions but not space-grouped forms like `1 234,56`. Excel support reads one sheet at a time and names the others rather than checking them, and the old binary `.xls` format is not supported at all. And while `check` will take a whole folder, cross-file referential integrity — a key in one file resolving against another — is not implemented.
 
 ## Measuring accuracy
 

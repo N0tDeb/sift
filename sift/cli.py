@@ -21,7 +21,13 @@ from .checks import run_checks, sensitive_columns
 from .config import FAIL_ON_LEVELS, Config, ConfigError, find_config, load_config
 from .drift import compare
 from .findings import redact_sensitive_findings
-from .impact import ImpactError, duplicate_impact, group_impact, sum_impact
+from .impact import (
+    ImpactError,
+    duplicate_impact,
+    group_impact,
+    prepare_repaired_rows,
+    sum_impact,
+)
 from .impact import render as render_impact
 from .initialize import build as build_config
 from .initialize import describe, summarise
@@ -220,7 +226,31 @@ def _profile_row(profile: ColumnProfile) -> str:
     )
 
 
-def check_many(targets: list[Path], config: Config, args: argparse.Namespace) -> int:
+def _cached_reference_loader():
+    """Load each foreign reference table once for one check invocation.
+
+    Reference checks are read-only, so reusing the same Table avoids repeating
+    file I/O and profiling while also giving every local file a consistent
+    snapshot of the foreign side. Failed loads are not cached.
+    """
+    cache: dict[Path, Table] = {}
+
+    def load_reference(path: str | Path) -> Table:
+        key = Path(path)
+        if key not in cache:
+            cache[key] = load_any(key)
+        return cache[key]
+
+    return load_reference
+
+
+def check_many(
+    targets: list[Path],
+    config: Config,
+    args: argparse.Namespace,
+    references: list[Reference],
+    reference_load,
+) -> int:
     """Check a set of files and report across them.
 
     The per-file counts matter less than the last section. A pipeline that
@@ -238,9 +268,9 @@ def check_many(targets: list[Path], config: Config, args: argparse.Namespace) ->
             failures.append((target, str(exc)))
             continue
         findings = run_checks(table, config)
-        for reference in getattr(args, "_references", []):
+        for reference in references:
             try:
-                findings.extend(check_reference(table, reference, config, load_any))
+                findings.extend(check_reference(table, reference, config, reference_load))
             except ReferenceError as exc:
                 failures.append((target, str(exc)))
         findings = redact_sensitive_findings(findings, sensitive_columns(table))
@@ -348,13 +378,32 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             config = resolve_config(args, args.path)
             table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
-            total = sum_impact(table, config, args.sum) if args.sum else None
+            if args.sum and table.by_key(args.sum) is None:
+                raise ImpactError(f"No column named {args.sum!r} in {table.path}.")
+            if args.group_by and table.by_key(args.group_by) is None:
+                raise ImpactError(f"No column named {args.group_by!r} in {table.path}.")
+            repaired_rows = prepare_repaired_rows(table, config)
+            total = (
+                sum_impact(
+                    table, config, args.sum, repaired_rows=repaired_rows
+                )
+                if args.sum
+                else None
+            )
             groups = (
-                group_impact(table, config, args.group_by, args.sum)
+                group_impact(
+                    table,
+                    config,
+                    args.group_by,
+                    args.sum,
+                    repaired_rows=repaired_rows,
+                )
                 if args.group_by
                 else None
             )
-            duplicates = duplicate_impact(table, config, args.sum)
+            duplicates = duplicate_impact(
+                table, config, args.sum, repaired_rows=repaired_rows
+            )
             print(render_impact(table, total, groups, duplicates))
             return 0
 
@@ -448,6 +497,7 @@ def main(argv: list[str] | None = None) -> int:
             config = resolve_config(args, targets[0])
 
             references = [Reference.parse(spec) for spec in args.references]
+            reference_load = _cached_reference_loader()
 
             for target in targets:
                 guard_output(args.output, target)
@@ -456,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
                 table = load_any(targets[0], args.delimiter, args.sheet, args.max_rows)
                 findings = run_checks(table, config)
                 for reference in references:
-                    findings.extend(check_reference(table, reference, config, load_any))
+                    findings.extend(check_reference(table, reference, config, reference_load))
                 findings = redact_sensitive_findings(findings, sensitive_columns(table))
                 report = write_report(table, findings, args.format, args.output)
                 if args.output:
@@ -469,8 +519,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(report)
                 return exit_code(findings, config)
 
-            args._references = references
-            return check_many(targets, config, args)
+            return check_many(targets, config, args, references, reference_load)
 
         if args.command == "diff":
             config = resolve_config(args, args.current)

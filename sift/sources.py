@@ -129,55 +129,70 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
             "as .xlsx."
         ) from exc
 
-    names = workbook.sheetnames
-    if sheet is not None:
-        if sheet not in names:
-            raise LoadError(f"No sheet named {sheet!r}. Sheets: {', '.join(names)}")
-        worksheet = workbook[sheet]
-    else:
-        worksheet = workbook[names[0]]
-        if len(names) > 1:
+    try:
+        names = workbook.sheetnames
+        if sheet is not None:
+            if sheet not in names:
+                raise LoadError(f"No sheet named {sheet!r}. Sheets: {', '.join(names)}")
+            worksheet = workbook[sheet]
+        else:
+            worksheet = workbook[names[0]]
+            if len(names) > 1:
+                findings.append(
+                    Finding(
+                        "unread-sheets",
+                        Severity.INFO,
+                        f"Read sheet {names[0]!r}. This workbook has "
+                        f"{plural(len(names) - 1, 'other sheet')} that nothing checked: "
+                        + ", ".join(repr(n) for n in names[1:]),
+                        detail={"sheets": names},
+                    )
+                )
+
+        row_iter = iter(worksheet.iter_rows(values_only=True))
+
+        # A spreadsheet built for humans often starts with a title row, a blank
+        # line, then the real header. Skip leading rows that are empty or hold a
+        # single stray cell. Do this lazily so max_rows can bound subsequent data
+        # row reads instead of materializing the whole worksheet first.
+        skipped = 0
+        raw_header: list[object] | None = None
+        for raw_row in row_iter:
+            row = list(raw_row)
+            if all(cell is None for cell in row) or sum(1 for cell in row if cell is not None) == 1:
+                skipped += 1
+                continue
+            raw_header = row
+            break
+
+        if raw_header is None:
+            raise LoadError(f"No usable rows in {path}")
+        if skipped:
             findings.append(
                 Finding(
-                    "unread-sheets",
-                    Severity.INFO,
-                    f"Read sheet {names[0]!r}. This workbook has "
-                    f"{plural(len(names) - 1, 'other sheet')} that nothing checked: "
-                    + ", ".join(repr(n) for n in names[1:]),
-                    detail={"sheets": names},
+                    "preamble-rows",
+                    Severity.WARNING,
+                    f"Skipped {plural(skipped, 'row')} above the header — a title or "
+                    "spacer written for a human reader. Any tool that does not skip "
+                    "them will read them as data.",
+                    detail={"skipped": skipped},
                 )
             )
 
-    grid = [list(row) for row in worksheet.iter_rows(values_only=True)]
-    workbook.close()
+        grid: list[list[object]] = []
+        if max_rows != 0:
+            for raw_row in row_iter:
+                grid.append(list(raw_row))
+                if max_rows is not None and max_rows > 0 and len(grid) >= max_rows:
+                    break
+        if max_rows is not None and max_rows < 0:
+            # Preserve the historical Python-slice behavior for direct callers
+            # passing a negative value. The CLI help describes a positive row
+            # limit, so normal bounded reads take the early-stop path above.
+            grid = grid[:max_rows]
+    finally:
+        workbook.close()
 
-    # A spreadsheet built for humans often starts with a title row, a blank
-    # line, then the real header. Skip leading rows that are empty or hold a
-    # single stray cell.
-    skipped = 0
-    while grid and (
-        all(cell is None for cell in grid[0])
-        or sum(1 for cell in grid[0] if cell is not None) == 1
-    ):
-        grid.pop(0)
-        skipped += 1
-    if not grid:
-        raise LoadError(f"No usable rows in {path}")
-    if skipped:
-        findings.append(
-            Finding(
-                "preamble-rows",
-                Severity.WARNING,
-                f"Skipped {plural(skipped, 'row')} above the header — a title or "
-                "spacer written for a human reader. Any tool that does not skip "
-                "them will read them as data.",
-                detail={"skipped": skipped},
-            )
-        )
-
-    raw_header = grid.pop(0)
-    if max_rows is not None:
-        grid = grid[:max_rows]
     width = len(raw_header)
     header = [_text(cell).strip() or f"column_{i + 1}" for i, cell in enumerate(raw_header)]
 
@@ -242,18 +257,36 @@ def load_parquet(path: Path, max_rows: int | None = None) -> Table:
 
     findings: list[Finding] = []
     try:
-        table = pq.read_table(path)
+        if max_rows is not None and max_rows >= 0:
+            parquet = pq.ParquetFile(path)
+            schema = parquet.schema_arrow
+            header = list(schema.names)
+            if max_rows == 0:
+                data = None
+            else:
+                data = next(parquet.iter_batches(batch_size=max_rows), None)
+        else:
+            # Keep the historical full-load path unchanged when no bounded read
+            # was requested. Negative direct-call values also retain their old
+            # Python-slice behavior below.
+            data = pq.read_table(path)
+            schema = data.schema
+            header = list(data.column_names)
     except Exception as exc:  # pyarrow raises its own error hierarchy
         raise LoadError(f"{path.name} could not be read as Parquet ({exc}).") from exc
-    header = list(table.column_names)
-    columns_text: list[list[str]] = []
 
-    for name in header:
-        column = table.column(name)
-        columns_text.append([_text(value.as_py()) for value in column])
+    columns_text: list[list[str]] = []
+    if data is None:
+        columns_text = [[] for _ in header]
+    else:
+        for index, _name in enumerate(header):
+            column = data.column(index)
+            columns_text.append([_text(value.as_py()) for value in column])
 
     rows = [list(row) for row in zip(*columns_text, strict=True)] if columns_text else []
-    if max_rows is not None:
+    if max_rows is not None and max_rows < 0:
+        # Preserve the historical Python-slice behavior for direct callers that
+        # pass a negative value. Positive and zero limits avoid a full-table read.
         rows = rows[:max_rows]
     built = _build(path, header, rows, findings)
 
@@ -262,7 +295,7 @@ def load_parquet(path: Path, max_rows: int | None = None) -> Table:
     # column whose every value is a number is a schema that stopped matching
     # its data — the exact thing a typed format is supposed to prevent.
     for index, name in enumerate(header):
-        declared = str(table.schema.field(name).type)
+        declared = str(schema.field(name).type)
         profile = built.columns[index].profile
         if declared.startswith("string") and profile.kind == "numeric" and profile.n_present:
             findings.append(
