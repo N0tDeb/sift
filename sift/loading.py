@@ -171,7 +171,14 @@ def _scan_bytes(path: Path) -> tuple[list[Finding], str]:
     return findings, encoding
 
 
+def validate_max_rows(max_rows: int | None) -> None:
+    """Require a positive row limit whenever one is supplied."""
+    if max_rows is not None and max_rows <= 0:
+        raise LoadError(f"max_rows must be a positive integer, got {max_rows}.")
+
+
 def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) -> Table:
+    validate_max_rows(max_rows)
     path = Path(path)
     if not path.exists():
         raise LoadError(f"No such file: {path}")
@@ -206,7 +213,7 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
                     long_rows.append(line_no)
                     row = row[:width]
                 rows.append(row)
-                if max_rows and len(rows) >= max_rows:
+                if max_rows is not None and len(rows) >= max_rows:
                     break
         except csv.Error as exc:
             raise LoadError(

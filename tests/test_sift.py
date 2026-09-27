@@ -420,6 +420,42 @@ def test_cli_html_report_is_written(tmp_path):
     assert "order_total" in html
 
 
+def test_multi_file_check_uses_each_targets_nearest_config(tmp_path, capsys):
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+
+    left.joinpath("sift.toml").write_text(
+        '[sift]\nignore = ["whitespace"]\n', encoding="utf-8"
+    )
+    right.joinpath("sift.toml").write_text("[sift]\n", encoding="utf-8")
+
+    body = "id,label\n1,North\n2, South \n3,East\n4,West\n5,Central\n"
+    left_file = left / "data.csv"
+    right_file = right / "data.csv"
+    left_file.write_text(body, encoding="utf-8")
+    right_file.write_text(body, encoding="utf-8")
+
+    assert main(
+        [
+            "check",
+            str(left_file),
+            str(right_file),
+            "--format",
+            "json",
+            "--fail-on",
+            "none",
+        ]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    by_file = {Path(item["file"]).parent.name: item for item in payload["files"]}
+    left_codes = {finding["code"] for finding in by_file["left"]["findings"]}
+    right_codes = {finding["code"] for finding in by_file["right"]["findings"]}
+    assert "whitespace" not in left_codes
+    assert "whitespace" in right_codes
+
+
 # --- inference confidence --------------------------------------------------
 
 
@@ -1185,6 +1221,35 @@ def test_parquet_max_rows_uses_a_bounded_batch_read(tmp_path, monkeypatch):
     assert instances[0].batch_size == 2
     assert table.n_rows == 2
     assert table.by_key("amount").values == ["1200", "980"]
+
+
+def test_max_rows_rejects_zero_and_negative_values_consistently(tmp_path, capsys):
+    for suffix in (".csv", ".xlsx", ".parquet"):
+        path = tmp_path / f"data{suffix}"
+        for limit in (0, -1):
+            with pytest.raises(LoadError, match="max_rows must be a positive integer"):
+                load_any(path, max_rows=limit)
+
+    path = write(tmp_path, CLEAN, "rows.csv")
+    assert main(["profile", str(path), "--max-rows", "0"]) == 2
+    assert "max_rows must be a positive integer" in capsys.readouterr().err
+
+
+def test_excel_single_column_sheet_is_not_mistaken_for_preamble(tmp_path):
+    path = _write_xlsx(
+        tmp_path / "single.xlsx",
+        [["value"], [1], [2], [3]],
+    )
+
+    table = load_any(path)
+    assert table.header == ["value"]
+    assert table.n_rows == 3
+    assert table.by_key("value").values == ["1", "2", "3"]
+    assert "preamble-rows" not in {f.code for f in table.file_findings}
+
+    bounded = load_any(path, max_rows=2)
+    assert bounded.n_rows == 2
+    assert bounded.by_key("value").values == ["1", "2"]
 
 
 def test_excel_preamble_rows_are_skipped_and_reported(tmp_path):

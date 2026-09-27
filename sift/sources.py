@@ -32,7 +32,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from .findings import Finding, Severity
-from .loading import Column, LoadError, Table
+from .loading import Column, LoadError, Table, validate_max_rows
 from .loading import load as load_csv
 from .profiling import profile_column
 from .text import plural
@@ -112,6 +112,7 @@ def _build(path: Path, header: list[str], rows: list[list[str]], findings: list[
 
 
 def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None) -> Table:
+    validate_max_rows(max_rows)
     try:
         from openpyxl import load_workbook
     except ImportError as exc:  # pragma: no cover - depends on the environment
@@ -152,14 +153,17 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
         row_iter = iter(worksheet.iter_rows(values_only=True))
 
         # A spreadsheet built for humans often starts with a title row, a blank
-        # line, then the real header. Skip leading rows that are empty or hold a
-        # single stray cell. Do this lazily so max_rows can bound subsequent data
-        # row reads instead of materializing the whole worksheet first.
+        # line, then the real header. On a genuinely one-column worksheet, though,
+        # every legitimate row has exactly one value, so treating all one-cell rows
+        # as preamble would discard the entire table. The worksheet dimension gives
+        # us the needed distinction without consuming the full sheet.
         skipped = 0
         raw_header: list[object] | None = None
+        single_column = getattr(worksheet, "max_column", None) == 1
         for raw_row in row_iter:
             row = list(raw_row)
-            if all(cell is None for cell in row) or sum(1 for cell in row if cell is not None) == 1:
+            nonempty = sum(1 for cell in row if cell is not None)
+            if nonempty == 0 or (nonempty == 1 and not single_column):
                 skipped += 1
                 continue
             raw_header = row
@@ -180,16 +184,10 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
             )
 
         grid: list[list[object]] = []
-        if max_rows != 0:
-            for raw_row in row_iter:
-                grid.append(list(raw_row))
-                if max_rows is not None and max_rows > 0 and len(grid) >= max_rows:
-                    break
-        if max_rows is not None and max_rows < 0:
-            # Preserve the historical Python-slice behavior for direct callers
-            # passing a negative value. The CLI help describes a positive row
-            # limit, so normal bounded reads take the early-stop path above.
-            grid = grid[:max_rows]
+        for raw_row in row_iter:
+            grid.append(list(raw_row))
+            if max_rows is not None and len(grid) >= max_rows:
+                break
     finally:
         workbook.close()
 
@@ -248,6 +246,7 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
 
 
 def load_parquet(path: Path, max_rows: int | None = None) -> Table:
+    validate_max_rows(max_rows)
     try:
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - depends on the environment
@@ -257,18 +256,12 @@ def load_parquet(path: Path, max_rows: int | None = None) -> Table:
 
     findings: list[Finding] = []
     try:
-        if max_rows is not None and max_rows >= 0:
+        if max_rows is not None:
             parquet = pq.ParquetFile(path)
             schema = parquet.schema_arrow
             header = list(schema.names)
-            if max_rows == 0:
-                data = None
-            else:
-                data = next(parquet.iter_batches(batch_size=max_rows), None)
+            data = next(parquet.iter_batches(batch_size=max_rows), None)
         else:
-            # Keep the historical full-load path unchanged when no bounded read
-            # was requested. Negative direct-call values also retain their old
-            # Python-slice behavior below.
             data = pq.read_table(path)
             schema = data.schema
             header = list(data.column_names)
@@ -284,10 +277,6 @@ def load_parquet(path: Path, max_rows: int | None = None) -> Table:
             columns_text.append([_text(value.as_py()) for value in column])
 
     rows = [list(row) for row in zip(*columns_text, strict=True)] if columns_text else []
-    if max_rows is not None and max_rows < 0:
-        # Preserve the historical Python-slice behavior for direct callers that
-        # pass a negative value. Positive and zero limits avoid a full-table read.
-        rows = rows[:max_rows]
     built = _build(path, header, rows, findings)
 
     # Parquet's schema was written on purpose, so the interesting question is

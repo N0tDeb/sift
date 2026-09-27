@@ -26,10 +26,13 @@ from .impact import (
     duplicate_impact,
     group_impact,
     prepare_repaired_rows,
-    render as render_impact,
     sum_impact,
 )
-from .initialize import build as build_config, describe, summarise
+from .impact import (
+    render as render_impact,
+)
+from .initialize import build as build_config
+from .initialize import describe, summarise
 from .loading import LoadError, Table
 from .profiling import ColumnProfile
 from .references import Reference, ReferenceError, check_reference
@@ -65,7 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
             help="Lowest severity that exits non-zero (default: error).",
         )
         sp.add_argument("--ignore", action="append", default=[], metavar="CODE")
-        sp.add_argument("--max-rows", type=int, help="Read at most this many rows.")
+        sp.add_argument(
+            "--max-rows", type=int, help="Read at most this many rows (must be positive)."
+        )
 
     check_cmd = sub.add_parser("check", help="Lint one or more files.")
     check_cmd.add_argument(
@@ -245,7 +250,6 @@ def _cached_reference_loader():
 
 def check_many(
     targets: list[Path],
-    config: Config,
     args: argparse.Namespace,
     references: list[Reference],
     reference_load,
@@ -258,9 +262,11 @@ def check_many(
     rather than at twelve separate cleanup jobs.
     """
     results: list[tuple[Path, list]] = []
+    result_codes: list[int] = []
     failures: list[tuple[Path, str]] = []
 
     for target in targets:
+        config = resolve_config(args, target)
         try:
             table = load_any(target, args.delimiter, args.sheet, args.max_rows)
         except (LoadError, OSError) as exc:
@@ -274,6 +280,7 @@ def check_many(
                 failures.append((target, str(exc)))
         findings = redact_sensitive_findings(findings, sensitive_columns(table))
         results.append((target, findings))
+        result_codes.append(exit_code(findings, config))
 
     if args.format == "json":
         payload = {
@@ -317,8 +324,7 @@ def check_many(
             for code, count in shared[:8]:
                 print(f"  {code:<26} {count} of {len(results)} files")
 
-    worst = [f for _, findings in results for f in findings]
-    code = exit_code(worst, config)
+    code = max(result_codes, default=0)
     return 2 if failures and not results else code
 
 
@@ -489,7 +495,6 @@ def _run_check(args: argparse.Namespace) -> int:
         )
         return 2
 
-    config = resolve_config(args, targets[0])
     references = [Reference.parse(spec) for spec in args.references]
     reference_load = _cached_reference_loader()
 
@@ -497,6 +502,7 @@ def _run_check(args: argparse.Namespace) -> int:
         guard_output(args.output, target)
 
     if len(targets) == 1:
+        config = resolve_config(args, targets[0])
         table = load_any(targets[0], args.delimiter, args.sheet, args.max_rows)
         findings = run_checks(table, config)
         for reference in references:
@@ -513,7 +519,7 @@ def _run_check(args: argparse.Namespace) -> int:
             print(report)
         return exit_code(findings, config)
 
-    return check_many(targets, config, args, references, reference_load)
+    return check_many(targets, args, references, reference_load)
 
 
 def _run_diff(args: argparse.Namespace) -> int:

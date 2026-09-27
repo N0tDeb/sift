@@ -338,7 +338,7 @@ changes = diff("baseline.csv", "today.csv")
 workbook_findings = lint("orders.xlsx", sheet="Orders")
 ```
 
-`lint()` and `diff()` accept the source options `delimiter`, `sheet` and `max_rows`;
+`lint()` and `diff()` accept the source options `delimiter`, `sheet` and positive `max_rows`;
 optional Excel/Parquet dependencies are still required for those formats.
 
 ## Design notes
