@@ -19,6 +19,10 @@ sift check orders.csv
 
 Run against 22 public datasets, it found a price column that sums to zero, a menu with three products split in two by a stray hyphen, and two Titanic passengers whose names have a trailing space. Details, including the three false positives that run exposed, are in [REAL-DATA.md](REAL-DATA.md).
 
+## Documentation
+
+For architecture, design decisions, testing strategy, security, performance, extension guidance, and operational details, see the [Project Guide](docs/PROJECT_GUIDE.md).
+
 ## Why
 
 A CSV has no types. Types appear when something reads it, and the reader guesses. Most of the time the guess is fine. When it isn't, nothing breaks:
