@@ -18,8 +18,8 @@ python -m bench.run
 
 The `dev` extra installs optional Excel and Parquet readers as well as the
 test and lint dependencies. For CSV-only use, `python -m pip install -e .`
-is sufficient. Installing `sift-lint` from PyPI is not possible until the
-first release has been published.
+is sufficient. For installation from a published distribution, see the
+[README](README.md).
 
 ## Contribute changes
 

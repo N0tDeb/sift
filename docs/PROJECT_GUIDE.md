@@ -1,8 +1,8 @@
 # Sift - Architecture, Design, Testing & Operations Guide
 
-> **Current development version:** `0.1.0`
+> **Project version:** `1.0.0`
 > **Distribution and CLI:** `sift-lint` · **Python import:** `sift_lint`
-> The first PyPI release is being prepared; this guide tracks the repository's development branch.
+> This guide describes the project source; public distribution is handled by the release workflow.
 
 Sift is a Python linter for tabular data files. Its focus is not whether a file can be opened, but whether the file contains values or structure that can silently change downstream results after a successful load. CSV is the dependency-free core path; Excel and Parquet are optional formats.
 
@@ -79,7 +79,7 @@ The definitive project state has the following properties:
 
 | Property | Definitive state |
 |---|---|
-| Project version | `0.1.0` |
+| Project version | `1.0.0` |
 | Distribution name | `sift-lint` |
 | CLI | `sift-lint` |
 | Python requirement | `>=3.11` |
@@ -893,8 +893,8 @@ The resulting fixes made Sift quieter and more precise rather than simply increa
 
 `pyproject.toml` uses Hatchling and keeps the version in one source of truth: `sift_lint/__init__.py`.
 
-Core installation has no required dependencies. Once Sift is published on
-PyPI, the recommended isolated CLI installation will be:
+Core installation has no required dependencies. For a published package,
+the recommended isolated CLI installation is:
 
 ```bash
 uv tool install sift-lint

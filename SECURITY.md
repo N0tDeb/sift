@@ -23,9 +23,9 @@ disclosure. No guaranteed response time is promised.
 
 ## Supported versions
 
-Sift is preparing its first public PyPI release. Before that release, security
-fixes are made on `main`. Once stable releases are available, supported
-version ranges will be listed here.
+Security fixes are prepared on `main` and target the latest published stable
+release. Before the first public release, fixes are made on `main` only.
+Historical development snapshots are not guaranteed security backports.
 
 ## Scope
 

@@ -1876,6 +1876,24 @@ def test_release_version_has_one_source_of_truth():
 
 
 
+def test_public_release_metadata_matches_documented_version():
+    import tomllib
+
+    import sift_lint
+
+    root = Path(__file__).resolve().parent.parent
+    version = sift_lint.__version__
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    guide = (root / "docs/PROJECT_GUIDE.md").read_text(encoding="utf-8")
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert f"| Project version | `{version}` |" in guide
+    assert re.search(rf"^## {re.escape(version)}(?:\s|$)", changelog, re.MULTILINE)
+    major = int(version.split(".", 1)[0])
+    status = "5 - Production/Stable" if major >= 1 else "4 - Beta"
+    assert f"Development Status :: {status}" in project["classifiers"]
+
+
 # --- audit regressions: adversarial and degenerate input -------------------
 
 
