@@ -14,7 +14,7 @@ A linter for CSV, Excel and Parquet files. It looks for the problems that surviv
 
 ```
 pip install -e .
-sift check orders.csv
+sift-lint check orders.csv
 ```
 
 Run against 22 public datasets, it found a price column that sums to zero, a menu with three products split in two by a stray hyphen, and two Titanic passengers whose names have a trailing space. Details, including the three false positives that run exposed, are in [REAL-DATA.md](REAL-DATA.md).
@@ -38,7 +38,7 @@ None of these raise an error. That's the whole problem: a file that loads is ass
 ## What it looks like
 
 ```
-$ sift check examples/orders_messy.csv --key order_id
+$ sift-lint check examples/orders_messy.csv --key order_id
 examples/orders_messy.csv  40 rows, 10 columns
 
 error   key-not-unique  order_id
@@ -81,12 +81,12 @@ Every finding has a stable code. [CODES.md](CODES.md) lists all 63 of them with 
 
 | | |
 |---|---|
-| `sift check FILE...` | Lint one file, several, or a whole directory. |
-| `sift diff BASELINE FILE` | Compare against a known-good file: dropped columns, type changes, new categories, null-rate jumps, distribution shifts. |
-| `sift fix FILE --output clean.csv` | Write a repaired copy plus an audit log of every cell changed — sensitive before/after values are redacted — and a list of what it refused to touch. |
-| `sift impact FILE --sum COL --group-by COL` | Quantify how wrong one specific aggregate is, in the units of the aggregate. |
-| `sift init FILE` | Learn a `sift.toml` from a file you already trust, with the reason for every exemption written down. |
-| `sift profile FILE` | Describe every column — type, null rate, cardinality, range. No judgement. |
+| `sift-lint check FILE...` | Lint one file, several, or a whole directory. |
+| `sift-lint diff BASELINE FILE` | Compare against a known-good file: dropped columns, type changes, new categories, null-rate jumps, distribution shifts. |
+| `sift-lint fix FILE --output clean.csv` | Write a repaired copy plus an audit log of every cell changed — sensitive before/after values are redacted — and a list of what it refused to touch. |
+| `sift-lint impact FILE --sum COL --group-by COL` | Quantify how wrong one specific aggregate is, in the units of the aggregate. |
+| `sift-lint init FILE` | Learn a `sift.toml` from a file you already trust, with the reason for every exemption written down. |
+| `sift-lint profile FILE` | Describe every column — type, null rate, cardinality, range. No judgement. |
 
 Useful flags: `--min-confidence high|medium`, `--dry-run`, `--key ORDER_ID` (must be unique and present), `--format text|json|html`, `--output PATH`, `--fail-on error|warning|info|none`, `--ignore CODE`.
 
@@ -97,8 +97,8 @@ Cross-file references are checked with `--references FILE:LOCAL=FOREIGN`. For ex
 CSV needs nothing installed. Excel and Parquet are optional extras, so the common path stays dependency-free:
 
 ```bash
-pip install 'sift-csv[excel]'     # .xlsx, .xlsm
-pip install 'sift-csv[parquet]'   # .parquet
+pip install 'sift-lint[excel]'     # .xlsx, .xlsm
+pip install 'sift-lint[parquet]'   # .parquet
 ```
 
 There is a tension worth naming here. Sift's method is to read every value as text and infer the type from evidence, because a CSV has no types and the reader's guess is what goes wrong. Excel and Parquet *do* carry types — so should Sift just trust them?
@@ -135,10 +135,10 @@ info    unread-sheets  file
 
 ### A folder at a time
 
-`sift check` takes several paths, or a directory it will search:
+`sift-lint check` takes several paths, or a directory it will search:
 
 ```
-$ sift check data/
+$ sift-lint check data/
 data/day1.csv        5 error, 14 warning, 3 info
 data/day2.csv        clean
 data/orders.parquet  3 warning, 1 info
@@ -158,7 +158,7 @@ The last section is the point. A pipeline that writes a file a day puts the same
 Every other tool in this space validates and stops. Sift will repair the damage it can *derive from the file itself*, and refuses the rest out loud.
 
 ```
-$ sift fix orders.csv --min-confidence medium --output clean.csv --log changes.csv
+$ sift-lint fix orders.csv --min-confidence medium --output clean.csv --log changes.csv
 orders.csv to clean.csv
 
 76 cells changed
@@ -198,17 +198,17 @@ Running `fix` twice changes nothing the second time. Also a test.
 
 ## Blast radius
 
-A finding is a claim about a file. `sift impact` answers the question the reader actually has: *how wrong is my number?*
+A finding is a claim about a file. `sift-lint impact` answers the question the reader actually has: *how wrong is my number?*
 
 ```
-$ sift impact orders.csv --sum order_total --group-by region
+$ sift-lint impact orders.csv --sum order_total --group-by region
 orders.csv  40 rows
 
 SUM(order_total)
   as it loads         not a number — the column reads as text, so a loader drops
                       every value it cannot parse: 2 of 40 rows survive.
   coerced                    -1,998   what errors='coerce' would give you
-  after sift fix       1,078,019.98   from 38 of 40 rows
+  after sift-lint fix       1,078,019.98   from 38 of 40 rows
   difference           1,080,017.98 (+100.2%)
 
       38 rows  formatted numbers recovered that a loader drops  +1,078,019.98
@@ -242,7 +242,7 @@ warning european-numbers  betrag
 
 The evidence comes in two strengths, and the distinction matters. `1.234,56` can *only* be read the European way — one such value settles the whole column. `1,200` is weaker: it is grouped thousands in English and `1.2` in European, and neither is impossible. Treating weak evidence as decisive would flag every ordinary `$1,200` as a locale error, so grouping only counts when nothing stronger exists. A column with strong evidence in both directions is reported as an error rather than resolved — it holds two formats mixed together, and one of them is off by a thousand.
 
-`sift fix` normalises European numbers to `1234.56` when the convention is settled, and refuses when it is not:
+`sift-lint fix` normalises European numbers to `1234.56` when the convention is settled, and refuses when it is not:
 
 ```
   v [plain-number]
@@ -281,8 +281,8 @@ A broken pipeline should never look like a clean file, which is why those last t
 ```yaml
 - name: Check the daily export
   run: |
-    sift check data/orders.csv --key order_id
-    sift diff data/orders.baseline.csv data/orders.csv --fail-on warning
+    sift-lint check data/orders.csv --key order_id
+    sift-lint diff data/orders.baseline.csv data/orders.csv --fail-on warning
 ```
 
 Committing a baseline file next to the data turns `diff` into a regression test for the shape of your data, not just its contents.
@@ -307,7 +307,7 @@ Committing a baseline file next to the data turns `diff` into a regression test 
 
 **Keys** — declared keys must be unique and complete; unique complete ID columns are suggested as candidates.
 
-**Drift** (`sift diff`) — removed, added and reordered columns, type changes, null-rate jumps, median shifts, new and vanished categories, large row-count changes.
+**Drift** (`sift-lint diff`) — removed, added and reordered columns, type changes, null-rate jumps, median shifts, new and vanished categories, large row-count changes.
 
 ## Configuration
 
@@ -331,7 +331,7 @@ Per-column silencing exists because that is what people actually need. A `notes`
 ## As a library
 
 ```python
-from sift import lint, diff
+from sift_lint import lint, diff
 
 for finding in lint("orders.csv"):
     print(finding.severity.value, finding.code, finding.column, finding.message)
@@ -376,7 +376,7 @@ Noise:  0 findings on the clean control file.
 
 Both halves matter. Recall is the share of planted problems found; noise is findings raised against a file with nothing wrong, where the only acceptable answer is zero. It runs in CI, so a change that starts missing problems — or starts inventing them — fails the build rather than being discovered months later.
 
-Writing it immediately paid for itself. It found a real gap: a column holding two *incompatible* date formats (some rows only day-first, others only month-first) is the one date problem that cannot be repaired at all, and `sift fix` was correctly refusing to touch it — while `sift check` reported it as a mild "mixed layouts" warning. The checker and the fixer disagreed about how bad it was. `check` now uses the same graded inference the repair engine does, and reports `conflicting-date-formats` as an error.
+Writing it immediately paid for itself. It found a real gap: a column holding two *incompatible* date formats (some rows only day-first, others only month-first) is the one date problem that cannot be repaired at all, and `sift-lint fix` was correctly refusing to touch it — while `sift-lint check` reported it as a mild "mixed layouts" warning. The checker and the fixer disagreed about how bad it was. `check` now uses the same graded inference the repair engine does, and reports `conflicting-date-formats` as an error.
 
 Wiring that up also removed a false positive nobody had noticed: the old check flagged a column as ambiguous whenever *any* row could be read two ways, even when another row in the same column settled the question. `04/03/2024` alongside `25/12/2024` is not ambiguous — the second row proves day-first, and the first follows.
 

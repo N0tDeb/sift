@@ -20,13 +20,13 @@ from pathlib import Path
 
 import pytest
 
-from sift.checks import run_checks
-from sift.cli import main
-from sift.config import Config, ConfigError, load_config
-from sift.drift import compare
-from sift.findings import Severity
-from sift.impact import ImpactError, duplicate_impact, group_impact, sum_impact
-from sift.inference import (
+from sift_lint.checks import run_checks
+from sift_lint.cli import main
+from sift_lint.config import Config, ConfigError, load_config
+from sift_lint.drift import compare
+from sift_lint.findings import Severity
+from sift_lint.impact import ImpactError, duplicate_impact, group_impact, sum_impact
+from sift_lint.inference import (
     DATE_FORMATS,
     is_null_token,
     number_evidence,
@@ -35,10 +35,10 @@ from sift.inference import (
     parse_number_any,
     whitespace_problem,
 )
-from sift.initialize import build as build_config
-from sift.initialize import describe
-from sift.loading import LoadError, load
-from sift.profiling import (
+from sift_lint.initialize import build as build_config
+from sift_lint.initialize import describe
+from sift_lint.loading import LoadError, load
+from sift_lint.profiling import (
     CATEGORICAL,
     DATE,
     NUMERIC,
@@ -46,11 +46,11 @@ from sift.profiling import (
     infer_date_order,
     profile_column,
 )
-from sift.references import Reference, ReferenceError, check_reference
-from sift.repair import HIGH, MEDIUM, plain_number, plan_repairs, write_csv
-from sift.reporting import render_html, render_text
-from sift.sources import discover, load_any
-from sift.text import terminal_safe
+from sift_lint.references import Reference, ReferenceError, check_reference
+from sift_lint.repair import HIGH, MEDIUM, plain_number, plan_repairs, write_csv
+from sift_lint.reporting import render_html, render_text
+from sift_lint.sources import discover, load_any
+from sift_lint.text import terminal_safe
 
 CLEAN = """\
 order_id,customer,order_date,region,quantity,order_total
@@ -764,7 +764,7 @@ def test_group_impact_counts_the_groups_that_should_not_exist(tmp_path):
 
 
 def test_group_impact_builds_one_repair_snapshot(tmp_path, monkeypatch):
-    import sift.impact as impact_module
+    import sift_lint.impact as impact_module
 
     table = load(write(tmp_path, MONEY))
     real_plan = impact_module.plan_repairs
@@ -813,7 +813,7 @@ def test_cli_impact_needs_something_to_measure(tmp_path):
 
 
 def test_cli_impact_reuses_one_repair_snapshot_across_metrics(tmp_path, monkeypatch):
-    import sift.impact as impact_module
+    import sift_lint.impact as impact_module
 
     path = write(tmp_path, MONEY)
     real_plan = impact_module.plan_repairs
@@ -1043,17 +1043,17 @@ def _write_xlsx(path, rows, sheets=("Orders",)):
 
 
 def test_public_api_exports_stable_types():
-    import sift
-    from sift.findings import Finding
+    import sift_lint
+    from sift_lint.findings import Finding
 
-    assert sift.Config is Config
-    assert sift.Severity is Severity
-    assert sift.Finding is Finding
-    assert isinstance(sift.__version__, str) and sift.__version__
+    assert sift_lint.Config is Config
+    assert sift_lint.Severity is Severity
+    assert sift_lint.Finding is Finding
+    assert isinstance(sift_lint.__version__, str) and sift_lint.__version__
 
 
 def test_public_lint_uses_supported_format_dispatch_and_sheet_selection(tmp_path):
-    from sift import lint as public_lint
+    from sift_lint import lint as public_lint
 
     path = tmp_path / "book.xlsx"
     _write_xlsx(
@@ -1078,7 +1078,7 @@ def test_public_lint_uses_supported_format_dispatch_and_sheet_selection(tmp_path
 
 
 def test_public_diff_uses_supported_format_dispatch(tmp_path):
-    from sift import diff as public_diff
+    from sift_lint import diff as public_diff
 
     baseline = _write_xlsx(
         tmp_path / "baseline.xlsx",
@@ -1112,7 +1112,7 @@ def test_csv_max_rows_stops_the_parser_after_the_requested_rows(tmp_path, monkey
                 raise AssertionError("CSV parser read past max_rows") from None
 
     reader = GuardedReader()
-    monkeypatch.setattr("sift.loading.csv.reader", lambda *_args, **_kwargs: reader)
+    monkeypatch.setattr("sift_lint.loading.csv.reader", lambda *_args, **_kwargs: reader)
 
     table = load(path, max_rows=1)
 
@@ -1459,7 +1459,36 @@ def test_reference_spec_parsing():
     assert ref.path.name == "customers.csv"
 
 
-@pytest.mark.parametrize("spec", ["customers.csv", "customers.csv:", "customers.csv:x"])
+@pytest.mark.parametrize(
+    "path",
+    [r"C:\data\customers.csv", "C:/data/customers.csv", r"D:\data\customers.csv"],
+)
+def test_reference_spec_with_windows_absolute_path(path):
+    ref = Reference.parse(f"{path}:customer_id=id")
+    assert str(ref.path) == path
+    assert ref.local == "customer_id"
+    assert ref.foreign == "id"
+
+
+def test_reference_spec_with_colon_in_foreign_column():
+    ref = Reference.parse("customers.csv:customer_id=external:id")
+    assert ref.path == Path("customers.csv")
+    assert ref.foreign == "external:id"
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "customers.csv",
+        "customers.csv:",
+        "customers.csv:x",
+        ":customer_id=id",
+        "   :customer_id=id",
+        "customers.csv: =id",
+        "customers.csv:customer_id= ",
+        "customers.csv:customer_id=",
+    ],
+)
 def test_malformed_reference_is_rejected(spec):
     with pytest.raises(ReferenceError):
         Reference.parse(spec)
@@ -1605,7 +1634,7 @@ def test_cli_init_writes_a_file(tmp_path):
 def _emitted_codes() -> set[str]:
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (Path(__file__).resolve().parent.parent / "sift").glob("*.py")
+        for path in (Path(__file__).resolve().parent.parent / "sift_lint").glob("*.py")
     )
     return set(re.findall(r'Finding\(\s*\n?\s*"([a-z0-9-]+)"', source))
 
@@ -1644,7 +1673,7 @@ def test_codes_documentation_has_no_phantom_entries():
 
 
 def test_every_subcommand_is_in_the_readme():
-    from sift.cli import build_parser
+    from sift_lint.cli import build_parser
 
     parser = build_parser()
     commands = {
@@ -1656,7 +1685,7 @@ def test_every_subcommand_is_in_the_readme():
     readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(
         encoding="utf-8"
     )
-    missing = {c for c in commands if f"`sift {c}" not in readme}
+    missing = {c for c in commands if f"`sift-lint {c}" not in readme}
     assert not missing, f"subcommands missing from README: {sorted(missing)}"
 
 
@@ -1690,7 +1719,7 @@ def test_readme_quickstart_summary_matches_example(capsys, monkeypatch):
 
 
 def test_workflow_readme_matches_data_gate_commands():
-    from sift.cli import build_parser
+    from sift_lint.cli import build_parser
 
     root = Path(__file__).resolve().parent.parent
     parser = build_parser()
@@ -1707,7 +1736,7 @@ def test_workflow_readme_matches_data_gate_commands():
         if name in commands
     }
     ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    actual = set(re.findall(r"run:\s*sift\s+([a-z-]+)", ci))
+    actual = set(re.findall(r"run:\s*sift-lint\s+([a-z-]+)", ci))
     assert documented == actual
 
 
@@ -1739,7 +1768,7 @@ def test_ci_builds_and_smoke_tests_installed_wheel():
     assert 'pip install --no-deps dist/*.whl' in ci
     assert 'smoke_dir="$(mktemp -d)"' in ci
     assert 'cd "$smoke_dir"' in ci
-    assert '"$RUNNER_TEMP/sift-wheel/bin/sift" --help' in ci
+    assert '"$RUNNER_TEMP/sift-wheel/bin/sift-lint" --help' in ci
     assert '"$RUNNER_TEMP/sift-wheel/bin/python" -m pip check' in ci
     assert "**package**" in workflow_doc
 
@@ -1805,10 +1834,22 @@ def test_python_classifiers_cover_ci_matrix():
         assert f"Programming Language :: Python :: {version}" in classifiers
 
 
+def test_distribution_exposes_the_sift_lint_command():
+    import tomllib
+
+    root = Path(__file__).resolve().parent.parent
+    metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert metadata["project"]["name"] == "sift-lint"
+    assert metadata["project"]["scripts"] == {"sift-lint": "sift_lint.cli:main"}
+    assert metadata["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [
+        "sift_lint"
+    ]
+
+
 def test_release_version_has_one_source_of_truth():
     import tomllib
 
-    import sift
+    import sift_lint
 
     root = Path(__file__).resolve().parent.parent
     metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
@@ -1817,8 +1858,8 @@ def test_release_version_has_one_source_of_truth():
 
     assert "version" not in project
     assert "version" in project["dynamic"]
-    assert hatch_version["path"] == "sift/__init__.py"
-    assert re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)?", sift.__version__)
+    assert hatch_version["path"] == "sift_lint/__init__.py"
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)?", sift_lint.__version__)
 
 
 
@@ -1853,7 +1894,7 @@ def test_raw_byte_scan_streams_instead_of_using_read_bytes(tmp_path, monkeypatch
 
 
 def test_raw_byte_scan_handles_utf8_and_crlf_across_chunk_boundaries(tmp_path, monkeypatch):
-    import sift.loading as loading
+    import sift_lint.loading as loading
 
     path = tmp_path / "boundaries.csv"
     raw = b"ab\r\nx\xc3\xa9\n\xff"
@@ -1973,7 +2014,7 @@ def test_init_config_escapes_controls_and_round_trips_column_names(tmp_path):
     ],
 )
 def test_cli_main_dispatches_every_command_to_its_handler(monkeypatch, argv, handler_name):
-    import sift.cli as cli_module
+    import sift_lint.cli as cli_module
 
     seen = []
 
@@ -2030,7 +2071,7 @@ def test_cli_reuses_reference_table_within_one_check_command(tmp_path, capsys, m
     second = write(tmp_path, "customer_id\nC-2\nC-8\n", "orders-b.csv")
     spec = f"{customers}:customer_id=id"
 
-    import sift.cli as cli_module
+    import sift_lint.cli as cli_module
 
     real_load_any = cli_module.load_any
     foreign_loads = 0
@@ -2343,7 +2384,7 @@ def test_every_finding_code_has_a_test_or_a_benchmark_case():
     # Coverage was measured at 70% once; 18 checks existed only in production.
     # This keeps a new check from being added without something exercising it.
     root = Path(__file__).resolve().parent.parent
-    source = "\n".join(p.read_text(encoding="utf-8") for p in (root / "sift").glob("*.py"))
+    source = "\n".join(p.read_text(encoding="utf-8") for p in (root / "sift_lint").glob("*.py"))
     emitted = set(re.findall(r'Finding\(\s*\n?\s*"([a-z0-9-]+)"', source))
 
     tests = Path(__file__).read_text(encoding="utf-8")
@@ -2438,7 +2479,7 @@ def test_fix_audit_log_redacts_sensitive_values_but_keeps_other_values(tmp_path)
 
 
 def test_public_diff_redacts_sensitive_category_examples(tmp_path):
-    from sift import diff as public_diff
+    from sift_lint import diff as public_diff
 
     baseline = write(
         tmp_path,

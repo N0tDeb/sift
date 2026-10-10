@@ -21,8 +21,8 @@ about the damage rather than a reason to skip looking for it.
 
 Both readers are optional. Sift's CSV path stays dependency-free:
 
-    pip install sift-csv[excel]
-    pip install sift-csv[parquet]
+    pip install sift-lint[excel]
+    pip install sift-lint[parquet]
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
         from openpyxl import load_workbook
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise LoadError(
-            "Reading .xlsx needs openpyxl: pip install 'sift-csv[excel]'"
+            "Reading .xlsx needs openpyxl: pip install 'sift-lint[excel]'"
         ) from exc
 
     findings: list[Finding] = []
@@ -251,7 +251,7 @@ def load_parquet(path: Path, max_rows: int | None = None) -> Table:
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise LoadError(
-            "Reading .parquet needs pyarrow: pip install 'sift-csv[parquet]'"
+            "Reading .parquet needs pyarrow: pip install 'sift-lint[parquet]'"
         ) from exc
 
     findings: list[Finding] = []

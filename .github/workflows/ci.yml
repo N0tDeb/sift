@@ -47,9 +47,9 @@ jobs:
           "$RUNNER_TEMP/sift-wheel/bin/python" -m pip install --no-deps dist/*.whl
           smoke_dir="$(mktemp -d)"
           cd "$smoke_dir"
-          "$RUNNER_TEMP/sift-wheel/bin/python" -c "import sift; print(sift.__version__)"
-          "$RUNNER_TEMP/sift-wheel/bin/sift" --help >/dev/null
-          "$RUNNER_TEMP/sift-wheel/bin/sift" check \
+          "$RUNNER_TEMP/sift-wheel/bin/python" -c "import sift_lint; print(sift_lint.__version__)"
+          "$RUNNER_TEMP/sift-wheel/bin/sift-lint" --help >/dev/null
+          "$RUNNER_TEMP/sift-wheel/bin/sift-lint" check \
             "$GITHUB_WORKSPACE/examples/orders_messy.csv" --no-config --fail-on none >/dev/null
           "$RUNNER_TEMP/sift-wheel/bin/python" -m pip check
 
@@ -66,10 +66,10 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[all]"
       - name: Lint the example files
-        run: sift check examples/ --fail-on none
+        run: sift-lint check examples/ --fail-on none
       - name: Compare against the baseline
-        run: sift diff examples/orders_baseline.csv examples/orders_messy.csv --fail-on none
+        run: sift-lint diff examples/orders_baseline.csv examples/orders_messy.csv --fail-on none
       - name: Repair what is safely repairable
-        run: sift fix examples/orders_messy.csv --force --dry-run
+        run: sift-lint fix examples/orders_messy.csv --force --dry-run
       - name: Report the blast radius
-        run: sift impact examples/orders_messy.csv --sum order_total --group-by region
+        run: sift-lint impact examples/orders_messy.csv --sum order_total --group-by region

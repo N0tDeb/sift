@@ -1,7 +1,7 @@
 # Sift - Architecture, Design, Testing & Operations Guide
 
 > **Documentation baseline**  
-> Sift `0.1.0`, package name `sift-csv`, CLI command `sift`.  
+> Sift `0.1.0`, package name `sift-lint`, CLI command `sift-lint`.
 > Prepared against the verified Sift `0.1.0` source tree. The public guide is versioned with the repository so documentation changes can be reviewed alongside code changes.
 
 Sift is a Python linter for tabular data files. Its focus is not whether a file can be opened, but whether the file contains values or structure that can silently change downstream results after a successful load. CSV is the dependency-free core path; Excel and Parquet are optional formats.
@@ -80,7 +80,7 @@ The definitive project state has the following properties:
 | Property | Definitive state |
 |---|---|
 | Project version | `0.1.0` |
-| Distribution name | `sift-csv` |
+| Distribution name | `sift-lint` |
 | CLI | `sift` |
 | Python requirement | `>=3.11` |
 | Mandatory runtime dependencies | None |
@@ -127,22 +127,22 @@ The architecture is intentionally module-oriented rather than framework-oriented
 
 | Module | Responsibility |
 |---|---|
-| [`sift/__init__.py`](../sift/__init__.py) | Small public library API: `lint`, `diff`, public types, version |
-| [`sift/loading.py`](../sift/loading.py) | CSV byte diagnostics, delimiter handling, row ingestion, `Table`/`Column` |
-| [`sift/sources.py`](../sift/sources.py) | Excel/Parquet adapters and source discovery/dispatch |
-| [`sift/inference.py`](../sift/inference.py) | Value-level number/date/null/boolean/text evidence |
-| [`sift/profiling.py`](../sift/profiling.py) | Column summaries and date/number convention inference |
-| [`sift/checks.py`](../sift/checks.py) | Registered data-quality checks and finding collapse |
-| [`sift/findings.py`](../sift/findings.py) | `Severity`, `Finding`, sorting and sensitive-column redaction |
-| [`sift/config.py`](../sift/config.py) | `sift.toml` discovery, validation, thresholds and silencing |
-| [`sift/reporting.py`](../sift/reporting.py) | Text, JSON and HTML rendering |
-| [`sift/repair.py`](../sift/repair.py) | Repair planning, refusals, CSV writing and audit logs |
-| [`sift/drift.py`](../sift/drift.py) | Baseline-versus-current comparison |
-| [`sift/impact.py`](../sift/impact.py) | Aggregate blast-radius calculations |
-| [`sift/references.py`](../sift/references.py) | Explicit cross-file referential-integrity checks |
-| [`sift/initialize.py`](../sift/initialize.py) | Generate a reviewed config from a trusted baseline |
-| [`sift/text.py`](../sift/text.py) | Shared human-readable formatting and terminal safety |
-| [`sift/cli.py`](../sift/cli.py) | Argument parsing, command dispatch, exit codes and orchestration |
+| [`sift_lint/__init__.py`](../sift_lint/__init__.py) | Small public library API: `lint`, `diff`, public types, version |
+| [`sift_lint/loading.py`](../sift_lint/loading.py) | CSV byte diagnostics, delimiter handling, row ingestion, `Table`/`Column` |
+| [`sift_lint/sources.py`](../sift_lint/sources.py) | Excel/Parquet adapters and source discovery/dispatch |
+| [`sift_lint/inference.py`](../sift_lint/inference.py) | Value-level number/date/null/boolean/text evidence |
+| [`sift_lint/profiling.py`](../sift_lint/profiling.py) | Column summaries and date/number convention inference |
+| [`sift_lint/checks.py`](../sift_lint/checks.py) | Registered data-quality checks and finding collapse |
+| [`sift_lint/findings.py`](../sift_lint/findings.py) | `Severity`, `Finding`, sorting and sensitive-column redaction |
+| [`sift_lint/config.py`](../sift_lint/config.py) | `sift.toml` discovery, validation, thresholds and silencing |
+| [`sift_lint/reporting.py`](../sift_lint/reporting.py) | Text, JSON and HTML rendering |
+| [`sift_lint/repair.py`](../sift_lint/repair.py) | Repair planning, refusals, CSV writing and audit logs |
+| [`sift_lint/drift.py`](../sift_lint/drift.py) | Baseline-versus-current comparison |
+| [`sift_lint/impact.py`](../sift_lint/impact.py) | Aggregate blast-radius calculations |
+| [`sift_lint/references.py`](../sift_lint/references.py) | Explicit cross-file referential-integrity checks |
+| [`sift_lint/initialize.py`](../sift_lint/initialize.py) | Generate a reviewed config from a trusted baseline |
+| [`sift_lint/text.py`](../sift_lint/text.py) | Shared human-readable formatting and terminal safety |
+| [`sift_lint/cli.py`](../sift_lint/cli.py) | Argument parsing, command dispatch, exit codes and orchestration |
 
 ---
 
@@ -174,7 +174,7 @@ sift/
 │   ├── orders_de.csv
 │   ├── orders_messy.csv
 │   └── orders_with_refs.csv
-├── sift/
+├── sift_lint/
 │   └── ...16 Python modules...
 ├── tests/
 │   └── test_sift.py
@@ -259,7 +259,7 @@ The code is intentionally stable because it appears in JSON and is also the iden
 
 ## 6. End-to-end processing flow
 
-The normal `sift check` path is:
+The normal `sift-lint check` path is:
 
 ```mermaid
 flowchart TD
@@ -326,7 +326,7 @@ Parquet support uses optional PyArrow. Because Parquet has an explicit schema, S
 
 ### 7.5 Source discovery
 
-`sources.discover()` allows `sift check` to accept explicit files or directories. Directory checks discover supported formats and then process each target.
+`sources.discover()` allows `sift-lint check` to accept explicit files or directories. Directory checks discover supported formats and then process each target.
 
 ---
 
@@ -381,7 +381,7 @@ The codes are grouped in [`CODES.md`](../CODES.md) as follows:
 | Keys and references | 8 |
 | Sensitive data | 2 |
 | Excel and Parquet | 5 |
-| Drift (`sift diff`) | 10 |
+| Drift (`sift-lint diff`) | 10 |
 | **Total** | **63** |
 
 ### Registered check functions
@@ -468,7 +468,7 @@ CLI `--fail-on` overrides the config for that invocation.
 
 Sift exposes six subcommands.
 
-### `sift check`
+### `sift-lint check`
 
 Purpose: lint one file, several files, or supported files discovered in a directory.
 
@@ -485,11 +485,11 @@ Important options:
 - `--ignore CODE`
 - `--max-rows N`
 
-### `sift diff BASELINE CURRENT`
+### `sift-lint diff BASELINE CURRENT`
 
 Purpose: compare a current file against a known-good baseline. Detects schema, type, null-rate, category, distribution and row-count changes.
 
-### `sift fix FILE`
+### `sift-lint fix FILE`
 
 Purpose: plan and optionally write conservative repairs.
 
@@ -503,7 +503,7 @@ Important options:
 - `--force`
 - source/config options.
 
-### `sift impact FILE`
+### `sift-lint impact FILE`
 
 Purpose: quantify how data defects change a concrete aggregate.
 
@@ -514,7 +514,7 @@ Metrics:
 
 These can be combined.
 
-### `sift init FILE`
+### `sift-lint init FILE`
 
 Purpose: derive a reviewed `sift.toml` from a trusted baseline file.
 
@@ -526,7 +526,7 @@ Important options:
 - `--dry-run`
 - source options.
 
-### `sift profile FILE`
+### `sift-lint profile FILE`
 
 Purpose: describe the table and columns without judging them.
 
@@ -624,7 +624,7 @@ The test suite verifies that applying the repair a second time makes no further 
 
 ## 14. Drift analysis
 
-`sift diff` compares two tables rather than re-running only ordinary single-file checks.
+`sift-lint diff` compares two tables rather than re-running only ordinary single-file checks.
 
 The documented drift codes cover:
 
@@ -646,7 +646,7 @@ A baseline file can therefore act as a regression contract for the shape and sta
 
 ## 15. Impact analysis
 
-A finding says what is wrong. `sift impact` asks what the defect does to a number a user cares about.
+A finding says what is wrong. `sift-lint impact` asks what the defect does to a number a user cares about.
 
 For a sum, Sift can compare:
 
@@ -691,7 +691,7 @@ Within one `check` command, repeatedly used reference files are cached so they a
 
 ## 17. Baseline-derived configuration
 
-`sift init` learns the policy from a file the user already trusts.
+`sift-lint init` learns the policy from a file the user already trusts.
 
 The design distinction is:
 
@@ -742,7 +742,7 @@ This property also reaches repair audit logs and public drift output.
 
 Values beginning with spreadsheet-executable prefixes such as `=`, `+` or `@` are detected. Repair does not rewrite those columns as if the data were ordinary text.
 
-By default, `sift fix` refuses to write an output while unresolved rewrite hazards remain. `--dry-run` previews the refusal. `--force` is an explicit acceptance of the unresolved risk and hazardous columns remain preserved rather than silently transformed.
+By default, `sift-lint fix` refuses to write an output while unresolved rewrite hazards remain. `--dry-run` previews the refusal. `--force` is an explicit acceptance of the unresolved risk and hazardous columns remain preserved rather than silently transformed.
 
 ### 18.4 HTML escaping
 
@@ -880,7 +880,7 @@ The resulting fixes made Sift quieter and more precise rather than simply increa
 
 ### Packaging
 
-`pyproject.toml` uses Hatchling and keeps the version in one source of truth: `sift/__init__.py`.
+`pyproject.toml` uses Hatchling and keeps the version in one source of truth: `sift_lint/__init__.py`.
 
 Core installation has no required dependencies:
 
@@ -891,9 +891,9 @@ pip install -e .
 Optional formats:
 
 ```bash
-pip install 'sift-csv[excel]'
-pip install 'sift-csv[parquet]'
-pip install 'sift-csv[all]'
+pip install 'sift-lint[excel]'
+pip install 'sift-lint[parquet]'
+pip install 'sift-lint[all]'
 ```
 
 Development extras include pytest, Ruff and both optional format dependencies.
@@ -928,7 +928,7 @@ python -m bench.run
 
 #### Package smoke test
 
-The package job builds a wheel, installs it into a fresh virtual environment, imports `sift`, exercises the console script, runs a real `sift check`, and runs `pip check`.
+The package job builds a wheel, installs it into a fresh virtual environment, imports `sift_lint`, exercises the console script, runs a real `sift-lint check`, and runs `pip check`.
 
 #### Data gate
 
@@ -946,7 +946,7 @@ The data-gate job installs all optional format support and exercises the project
 The supported top-level API is intentionally small:
 
 ```python
-from sift import Config, Finding, Severity, diff, lint
+from sift_lint import Config, Finding, Severity, diff, lint
 ```
 
 ### `lint(path, config=None, **kwargs)`
@@ -1037,7 +1037,7 @@ pip install -e .
 Install the Excel extra:
 
 ```bash
-pip install 'sift-csv[excel]'
+pip install 'sift-lint[excel]'
 ```
 
 ### Parquet cannot be read
@@ -1045,7 +1045,7 @@ pip install 'sift-csv[excel]'
 Install the Parquet extra:
 
 ```bash
-pip install 'sift-csv[parquet]'
+pip install 'sift-lint[parquet]'
 ```
 
 ### `.xls` does not work

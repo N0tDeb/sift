@@ -48,14 +48,9 @@ class Reference:
         The local column is on the left of `=` because that is the one in the
         file being checked, which is the file the reader is thinking about.
         """
-        file_part, _, columns = spec.partition(":")
-        if not columns:
-            raise ReferenceError(
-                f"Malformed reference {spec!r}. Expected FILE:LOCAL=FOREIGN, "
-                "for example customers.csv:customer_id=id"
-            )
-        local, _, foreign = columns.partition("=")
-        if not local or not foreign:
+        before_equals, equals, foreign = spec.partition("=")
+        file_part, colon, local = before_equals.rpartition(":")
+        if not all((equals, colon, file_part.strip(), local.strip(), foreign.strip())):
             raise ReferenceError(
                 f"Malformed reference {spec!r}. Expected FILE:LOCAL=FOREIGN, "
                 "for example customers.csv:customer_id=id"
