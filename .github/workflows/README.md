@@ -2,14 +2,17 @@
 
 `ci.yml` runs on every push to `main` and every pull request.
 
-**test** — installs the package in editable mode and runs `ruff`, the test suite,
-and the recall benchmark across Python 3.11, 3.12 and 3.13.
+**test** — runs Ruff, the full test suite and the recall benchmark on Ubuntu
+with Python 3.11–3.14, plus Windows and macOS with Python 3.14. An exploratory
+Python 3.15 Ubuntu job runs without blocking the established compatibility
+checks. The format extras are installed for every test job; new Python
+versions are not advertised as supported until verification is complete.
 
-**package** — builds the wheel declared by `pyproject.toml`, installs that wheel
-without dependencies into a fresh virtual environment, then smoke-tests the
-installed import, console script, a real CSV check, and `pip check`. The smoke
-commands run outside the repository so the source checkout cannot shadow the
-installed wheel.
+**package** — builds a wheel and source distribution on Linux, Windows and
+macOS. Both archives undergo strict metadata checks and are installed
+separately in clean virtual environments. Each installed package is tested
+outside the repository for version consistency, imports, the CLI, a real CSV
+check and `pip check`.
 
 **data-gate** — runs Sift against this repository's own example files, the way
 it is meant to be used in a pipeline: `check` on a folder, `diff` against a

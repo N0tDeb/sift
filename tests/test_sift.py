@@ -1757,20 +1757,33 @@ def test_readme_documents_cross_file_references():
     assert "cross-file referential integrity" not in readme.lower()
 
 
-def test_ci_builds_and_smoke_tests_installed_wheel():
+def test_ci_builds_and_smoke_tests_distributions():
     root = Path(__file__).resolve().parent.parent
     ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    smoke = (root / ".github/scripts/check_distributions.py").read_text(encoding="utf-8")
     workflow_doc = (root / ".github/workflows/README.md").read_text(encoding="utf-8")
 
     assert "  package:\n" in ci
-    assert "python -m pip wheel . --no-deps --wheel-dir dist" in ci
-    assert 'python -m venv "$RUNNER_TEMP/sift-wheel"' in ci
-    assert 'pip install --no-deps dist/*.whl' in ci
-    assert 'smoke_dir="$(mktemp -d)"' in ci
-    assert 'cd "$smoke_dir"' in ci
-    assert '"$RUNNER_TEMP/sift-wheel/bin/sift-lint" --help' in ci
-    assert '"$RUNNER_TEMP/sift-wheel/bin/python" -m pip check' in ci
+    assert "python -m build" in ci
+    assert "python .github/scripts/check_distributions.py" in ci
+    assert "twine" in smoke and '"--strict"' in smoke
+    assert 'single("*.whl")' in smoke and 'single("*.tar.gz")' in smoke
+    assert "venv.EnvBuilder(with_pip=True)" in smoke
+    assert "TemporaryDirectory" in smoke
+    assert '"sift-lint.exe"' in smoke and '"sift-lint"' in smoke
+    assert '"pip", "check"' in smoke
     assert "**package**" in workflow_doc
+
+
+def test_ci_checks_supported_os_and_python_versions():
+    root = Path(__file__).resolve().parent.parent
+    ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    for platform in ("ubuntu-24.04", "windows-2025", "macos-15"):
+        assert platform in ci
+    for version in ("3.11", "3.12", "3.13", "3.14", "3.15"):
+        assert f'python-version: "{version}"' in ci
+    assert "continue-on-error: ${{ matrix.experimental }}" in ci
+    assert "experimental: true" in ci
 
 
 def test_ci_actions_are_pinned_and_credentials_are_not_persisted():
@@ -1819,19 +1832,21 @@ def test_github_issue_template_uses_current_chooser_layout():
         assert re.search(r"^about:\s*\S", text, re.MULTILINE)
 
 
-def test_python_classifiers_cover_ci_matrix():
+def test_advertised_python_versions_are_covered_by_ci():
     import tomllib
 
     root = Path(__file__).resolve().parent.parent
     metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     classifiers = set(metadata["project"]["classifiers"])
     ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    match = re.search(r'python-version: \[(.*?)\]', ci)
-    assert match is not None
-    versions = re.findall(r'"(\d+\.\d+)"', match.group(1))
+    versions = set(re.findall(r'python-version: "(\d+\.\d+)"', ci))
     assert versions
-    for version in versions:
-        assert f"Programming Language :: Python :: {version}" in classifiers
+    advertised = {
+        classifier.removeprefix("Programming Language :: Python :: ")
+        for classifier in classifiers
+        if re.fullmatch(r"Programming Language :: Python :: \d+\.\d+", classifier)
+    }
+    assert advertised <= versions
 
 
 def test_distribution_exposes_the_sift_lint_command():
