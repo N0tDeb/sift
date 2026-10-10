@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 maintainers = [{ name = "N0tDeb" }]
 keywords = ["csv", "excel", "parquet", "data-quality", "linter", "etl", "validation"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3.11",

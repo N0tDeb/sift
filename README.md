@@ -14,18 +14,18 @@ A linter for CSV, Excel and Parquet files. It looks for the problems that surviv
 
 ## Installation
 
-Sift is being prepared for its first PyPI release and is **not published yet**.
-Once released, the recommended CLI installation will be:
+For a published release, the recommended isolated CLI installation is:
 
 ```bash
 uv tool install sift-lint
 sift-lint check orders.csv
 ```
 
-`uv` installs the command in an isolated environment. A standard `pip install sift-lint`
-will also work after publication. Sift requires Python 3.11 or newer.
+`uv` installs the command in an isolated environment. Alternatively, use
+`python -m pip install sift-lint` inside a Python environment. Sift requires
+Python 3.11 or newer.
 
-To try the current source checkout now:
+To work directly from a source checkout:
 
 ```bash
 python -m pip install -e .
@@ -115,10 +115,10 @@ Cross-file references are checked with `--references FILE:LOCAL=FOREIGN`. For ex
 CSV needs no extra dependencies. Excel and Parquet readers are optional:
 
 ```bash
-# Once available on PyPI:
+# For a published release:
 uv tool install 'sift-lint[all]'     # CSV, .xlsx/.xlsm and .parquet
 
-# Or with pip in a Python environment, after publication:
+# Or with pip in a Python environment:
 python -m pip install 'sift-lint[excel]'
 python -m pip install 'sift-lint[parquet]'
 ```

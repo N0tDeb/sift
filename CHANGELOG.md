@@ -1,22 +1,30 @@
 # Changelog
 
-Notable user-visible changes to Sift are recorded here. Versions follow
-[Semantic Versioning](https://semver.org/); entries are finalized as part of
-release preparation.
+Notable user-visible changes to Sift are recorded here. Releases use
+[Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 1.0.0
 
-### Release preparation
+### Included in the first stable distribution
 
-- Prepared the distribution and console command as `sift-lint`, with Python
-  imports under `sift_lint`.
-- Added cross-platform CI for Python 3.11–3.14 on Linux and Python 3.14 on
-  Windows/macOS, including wheel and source-distribution smoke tests.
-- Added a release-only PyPI Trusted Publishing workflow and Dependabot for
-  pinned GitHub Actions.
-- Improved package metadata, installation guidance, contribution instructions
-  and vulnerability-reporting documentation.
+- `sift-lint` CLI with `check`, `diff`, `fix`, `impact`, `init`, and `profile`
+  commands; a small Python API is available as `sift_lint`.
+- Dependency-free CSV linting, with optional Excel and Parquet readers
+  provided through the `excel`, `parquet`, and `all` extras.
+- Stable finding codes with text, JSON, and standalone HTML reports;
+  cross-file reference checks and configuration through `sift.toml`.
+- Conservative repair with an audit log, baseline drift analysis, and
+  quantified aggregate-impact reporting.
+- Terminal-control escaping and sensitive-data redaction safeguards.
 
-The package is still at development version `0.1.0`. No public PyPI version
-has been released; the first published version will receive a dated entry
-here when its contents are finalized.
+### Release readiness
+
+- Cross-platform CI covers Python 3.11–3.14 on Linux and Python 3.14 on
+  Windows/macOS; wheel and source-distribution smoke tests run on all three.
+- The controlled corruption benchmark detects 28 of 28 planted defects
+  with zero findings on its clean control. This is not a general recall claim.
+- Secure release-only PyPI publishing uses GitHub Actions and short-lived
+  Trusted Publishing credentials; GitHub Actions dependencies use pinned SHAs
+  with Dependabot updates.
+- Public installation instructions, package metadata, contribution guidance,
+  and a security-reporting policy accompany the distribution.

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from .config import Config
     from .findings import Finding
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 __all__ = ["lint", "diff", "Finding", "Severity", "Config", "__version__"]
 
 
