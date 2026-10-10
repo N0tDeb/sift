@@ -16,7 +16,7 @@ import textwrap
 import time
 import types
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -1465,7 +1465,7 @@ def test_reference_spec_parsing():
 )
 def test_reference_spec_with_windows_absolute_path(path):
     ref = Reference.parse(f"{path}:customer_id=id")
-    assert str(ref.path) == path
+    assert PureWindowsPath(ref.path) == PureWindowsPath(path)
     assert ref.local == "customer_id"
     assert ref.foreign == "id"
 
@@ -1972,9 +1972,14 @@ def test_text_report_escapes_terminal_control_sequences(tmp_path):
     assert r"\x07alarm " in report
 
 
-def test_cli_profile_escapes_controls_in_paths_and_column_names(tmp_path, capsys):
-    path = tmp_path / "evil\x1b[31m.csv"
+def test_cli_profile_escapes_controls_in_paths_and_column_names(
+    tmp_path, capsys, monkeypatch
+):
+    path = tmp_path / "profile.csv"
     path.write_bytes(b"col\x1b[2J\nvalue\n")
+    table = load(path)
+    table.path = tmp_path / "evil\x1b[31m.csv"
+    monkeypatch.setattr("sift_lint.cli.load_any", lambda *args, **kwargs: table)
 
     assert main(["profile", str(path)]) == 0
     output = capsys.readouterr().out
