@@ -1,14 +1,14 @@
 # Sift - Architecture, Design, Testing & Operations Guide
 
-> **Documentation baseline**  
-> Sift `0.1.0`, package name `sift-lint`, CLI command `sift-lint`.
-> Prepared against the verified Sift `0.1.0` source tree. The public guide is versioned with the repository so documentation changes can be reviewed alongside code changes.
+> **Current development version:** `0.1.0`
+> **Distribution and CLI:** `sift-lint` · **Python import:** `sift_lint`
+> The first PyPI release is being prepared; this guide tracks the repository's development branch.
 
 Sift is a Python linter for tabular data files. Its focus is not whether a file can be opened, but whether the file contains values or structure that can silently change downstream results after a successful load. CSV is the dependency-free core path; Excel and Parquet are optional formats.
 
 This guide documents the architecture, command-line behavior, source modules, design decisions, safety properties, testing strategy, performance choices, extension points, and operational expectations of the definitive project state.
 
-**Repository navigation:** [README](../README.md) · [finding codes](../CODES.md) · [benchmark](../BENCHMARK.md) · [real-data notes](../REAL-DATA.md) · [setup](../SETUP.md) · [tests](../tests/test_sift.py) · [CI workflow](../.github/workflows/ci.yml)
+**Repository navigation:** [README](../README.md) · [finding codes](../CODES.md) · [benchmark](../BENCHMARK.md) · [real-data notes](../REAL-DATA.md) · [setup](../SETUP.md) · [changelog](../CHANGELOG.md) · [contributing](../CONTRIBUTING.md) · [security](../SECURITY.md) · [tests](../tests/test_sift.py) · [CI workflow](../.github/workflows/ci.yml)
 
 ## Contents
 
@@ -81,7 +81,7 @@ The definitive project state has the following properties:
 |---|---|
 | Project version | `0.1.0` |
 | Distribution name | `sift-lint` |
-| CLI | `sift` |
+| CLI | `sift-lint` |
 | Python requirement | `>=3.11` |
 | Mandatory runtime dependencies | None |
 | Excel extra | `openpyxl>=3.1` |
@@ -92,11 +92,11 @@ The definitive project state has the following properties:
 | Registered check functions | 19 |
 | Stable documented finding codes | 63 |
 | CLI subcommands | 6 |
-| Local verification | 219 passed, 1 skipped |
+| Verification | Run the latest GitHub Actions CI matrix |
 | Known-corruption benchmark | 28/28 detected |
 | Clean-control benchmark noise | 0 findings |
 
-The one skipped local test is the optional PyArrow integration when PyArrow is unavailable in the local verification environment. The committed CI configuration installs the development extras and is designed to run the suite on Python 3.11, 3.12, and 3.13.
+The test suite includes optional format integrations; availability depends on installed extras. CI installs the development extras and runs Ruff, tests and the benchmark on Linux Python 3.11–3.14 and Windows/macOS Python 3.14. The package jobs validate wheel and source distributions on all three operating systems.
 
 The benchmark result is evidence about the 28 planted corruption cases in `bench/`; it is **not** a claim that Sift detects every possible data-quality defect.
 
@@ -153,9 +153,14 @@ sift/
 ├── .github/
 │   ├── ISSUE_TEMPLATE/
 │   │   └── bug_report.md
+│   ├── scripts/
+│   │   ├── check_distributions.py
+│   │   └── check_release.py
+│   ├── dependabot.yml
 │   └── workflows/
 │       ├── README.md
-│       └── ci.yml
+│       ├── ci.yml
+│       └── release.yml
 ├── bench/
 │   ├── __init__.py
 │   ├── corruptions.py
@@ -181,10 +186,13 @@ sift/
 ├── .gitattributes
 ├── .gitignore
 ├── BENCHMARK.md
+├── CHANGELOG.md
 ├── CODES.md
+├── CONTRIBUTING.md
 ├── LICENSE
 ├── README.md
 ├── REAL-DATA.md
+├── SECURITY.md
 ├── SETUP.md
 ├── pyproject.toml
 ├── sample-report.html
@@ -193,14 +201,17 @@ sift/
 
 ### Why the repository-level files exist
 
-- **[`pyproject.toml`](../pyproject.toml)** defines packaging, optional extras, the `sift` console entry point, pytest settings, and Ruff rules.
+- **[`pyproject.toml`](../pyproject.toml)** defines packaging, optional extras, the `sift-lint` console entry point, pytest settings, and Ruff rules.
 - **[`sift.toml`](../sift.toml)** is the documented default runtime configuration example.
 - **[`.gitignore`](../.gitignore)** excludes generated Python, coverage, build, environment, and tool-cache files from version control.
 - **[`.gitattributes`](../.gitattributes)** prevents Git from normalizing the deliberately corrupted line endings in `examples/orders_messy.csv`.
 - **[`CODES.md`](../CODES.md)** documents the stable finding-code interface.
 - **[`BENCHMARK.md`](../BENCHMARK.md)** records the controlled corruption benchmark.
 - **[`REAL-DATA.md`](../REAL-DATA.md)** records results and false-positive fixes from public datasets.
-- **[`SETUP.md`](../SETUP.md)** documents repository publication and CI setup.
+- **[`SETUP.md`](../SETUP.md)** documents development, CI and guarded release operations.
+- **[`CHANGELOG.md`](../CHANGELOG.md)** tracks release-facing changes.
+- **[`CONTRIBUTING.md`](../CONTRIBUTING.md)** covers pull requests and regression tests.
+- **[`SECURITY.md`](../SECURITY.md)** describes private vulnerability reporting.
 - **[`sample-report.html`](../sample-report.html)** demonstrates the standalone HTML renderer.
 - **[`bench/`](../bench/)** measures recall on planted corruptions and silence on a clean control.
 - **[`examples/`](../examples/)** provides fixtures for CSV, Excel, Parquet, references, locale-number handling, drift, and repair demonstrations.
@@ -796,7 +807,7 @@ The design intentionally retains values as Python strings so it can reason about
 
 ## 20. Testing strategy
 
-The definitive suite contains **220 collected tests in the local verification environment: 219 passed and 1 optional PyArrow integration test was skipped**.
+The regression suite is run in CI on all supported operating systems. Test counts evolve as cases are added; rely on the current CI results rather than a frozen total.
 
 The test file covers much more than happy-path unit tests. Major categories include:
 
@@ -882,34 +893,35 @@ The resulting fixes made Sift quieter and more precise rather than simply increa
 
 `pyproject.toml` uses Hatchling and keeps the version in one source of truth: `sift_lint/__init__.py`.
 
-Core installation has no required dependencies:
+Core installation has no required dependencies. Once Sift is published on
+PyPI, the recommended isolated CLI installation will be:
 
 ```bash
-pip install -e .
+uv tool install sift-lint
+uv tool install 'sift-lint[all]'  # include optional Excel and Parquet support
 ```
 
-Optional formats:
+For development from the current source tree:
 
 ```bash
-pip install 'sift-lint[excel]'
-pip install 'sift-lint[parquet]'
-pip install 'sift-lint[all]'
+python -m pip install -e '.[dev]'
 ```
 
-Development extras include pytest, Ruff and both optional format dependencies.
+The `excel`, `parquet` and `all` extras supply optional format readers;
+`dev` also includes pytest and Ruff. See [SETUP.md](../SETUP.md).
 
 ### CI jobs
 
-The GitHub Actions workflow has three main jobs, each proving a different property.
+The `ci.yml` workflow has three main jobs, each proving a different property.
 
 ```mermaid
 flowchart TD
-    A[Push / pull request] --> B[Test matrix: Python 3.11 / 3.12 / 3.13]
-    A --> C[Package smoke test]
+    A[Push to main / pull request] --> B[Linux Python 3.11–3.14; Windows/macOS 3.14]
+    A --> C[Linux / Windows / macOS package checks]
     A --> D[Data gate]
     B --> B1[Ruff + pytest + corruption benchmark]
-    C --> C1[Build wheel + fresh install + console smoke + pip check]
-    D --> D1[All optional formats + example check/diff/fix/impact flows]
+    C --> C1[Wheel and sdist + clean-install smoke + pip check]
+    D --> D1[Optional formats + example check/diff/fix/impact flows]
     B1 --> E[Core behavior]
     C1 --> F[Installability]
     D1 --> G[End-to-end data workflows]
@@ -917,18 +929,16 @@ flowchart TD
 
 #### Test matrix
 
-Python 3.11, 3.12 and 3.13:
-
-```text
-install .[dev]
-ruff check .
-pytest -q
-python -m bench.run
-```
+Linux checks Python 3.11, 3.12, 3.13 and 3.14; Windows and macOS check
+Python 3.14. Every test job installs `.[dev]` and runs Ruff, pytest and the
+known-corruption benchmark.
 
 #### Package smoke test
 
-The package job builds a wheel, installs it into a fresh virtual environment, imports `sift_lint`, exercises the console script, runs a real `sift-lint check`, and runs `pip check`.
+On Linux, Windows and macOS, the package job builds a wheel and source
+distribution, checks archive contents and metadata, and installs each archive
+into its own clean virtual environment. It imports `sift_lint`, exercises the
+console script, runs a real `sift-lint check`, and runs `pip check`.
 
 #### Data gate
 
@@ -938,6 +948,18 @@ The data-gate job installs all optional format support and exercises the project
 - compare messy data with the baseline;
 - preview safe repair;
 - report aggregate impact.
+
+---
+
+### Publishing workflow
+
+`release.yml` runs only when a stable GitHub Release is deliberately
+published. It verifies the tag matches the version in `sift_lint/__init__.py`
+and belongs to `main`, then repeats tests, benchmarks and distribution
+validation. A separate publishing job uses the protected `pypi` environment
+and short-lived OIDC credentials through PyPI Trusted Publishing. Ordinary
+commits, merges and tag pushes cannot start that workflow. See
+[SETUP.md](../SETUP.md) before creating a release.
 
 ---
 
@@ -1024,13 +1046,17 @@ New configuration should be validated strictly and should have a clear relations
 
 ## 26. Troubleshooting
 
-### `sift` command is not found
+### `sift-lint` command is not found
 
-Install the project in the active environment:
+After the PyPI release, install the CLI with `uv tool install sift-lint` or
+`python -m pip install sift-lint` in your environment. Before publication,
+install the source checkout with:
 
 ```bash
-pip install -e .
+python -m pip install -e .
 ```
+
+Ensure the resulting script directory is on your `PATH`.
 
 ### Excel cannot be read
 
@@ -1224,4 +1250,4 @@ Escaping untrusted control and bidirectional formatting characters before embedd
 
 ## Maintenance note
 
-This guide documents the verified Sift `0.1.0` project state. Because the guide lives in the repository, update it in the same change whenever public behavior or architecture changes. In particular, keep command options, finding-code counts, CI behavior, optional dependencies, benchmark claims and limitations synchronized with the source and tests.
+This guide tracks the current Sift development state. Update it alongside public behavior or architecture changes. In particular, keep command options, finding-code counts, CI behavior, optional dependencies, benchmark claims and limitations synchronized with the source and tests.
