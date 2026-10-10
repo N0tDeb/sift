@@ -3,10 +3,9 @@
 `ci.yml` runs on every push to `main` and every pull request.
 
 **test** — runs Ruff, the full test suite and the recall benchmark on Ubuntu
-with Python 3.11–3.14, plus Windows and macOS with Python 3.14. An exploratory
-Python 3.15 Ubuntu job runs without blocking the established compatibility
-checks. The format extras are installed for every test job; new Python
-versions are not advertised as supported until verification is complete.
+with Python 3.11–3.14, plus Windows and macOS with Python 3.14. The format
+extras are installed for every test job. Python 3.15 will be added when
+`actions/setup-python` provides it for the selected runner.
 
 **package** — builds a wheel and source distribution on Linux, Windows and
 macOS. Both archives undergo strict metadata checks and are installed

@@ -12,34 +12,22 @@ jobs:
   test:
     name: test (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
             python-version: "3.11"
-            experimental: false
           - os: ubuntu-24.04
             python-version: "3.12"
-            experimental: false
           - os: ubuntu-24.04
             python-version: "3.13"
-            experimental: false
           - os: ubuntu-24.04
             python-version: "3.14"
-            experimental: false
-          # Python 3.15 is newly released; the exploratory job must not block
-          # established Python and OS compatibility checks.
-          - os: ubuntu-24.04
-            python-version: "3.15"
-            experimental: true
           - os: windows-2025
             python-version: "3.14"
-            experimental: false
           - os: macos-15
             python-version: "3.14"
-            experimental: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

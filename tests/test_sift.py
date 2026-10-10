@@ -1780,10 +1780,8 @@ def test_ci_checks_supported_os_and_python_versions():
     ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     for platform in ("ubuntu-24.04", "windows-2025", "macos-15"):
         assert platform in ci
-    for version in ("3.11", "3.12", "3.13", "3.14", "3.15"):
+    for version in ("3.11", "3.12", "3.13", "3.14"):
         assert f'python-version: "{version}"' in ci
-    assert "continue-on-error: ${{ matrix.experimental }}" in ci
-    assert "experimental: true" in ci
 
 
 def test_ci_actions_are_pinned_and_credentials_are_not_persisted():

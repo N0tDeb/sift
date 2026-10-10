@@ -3,32 +3,32 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import subprocess
 import sys
 import tarfile
 import tempfile
 import venv
 import zipfile
-from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 DIST = ROOT / "dist"
 EXAMPLE = ROOT / "examples" / "orders_messy.csv"
 
 
-def run(*args: str, cwd: Path) -> None:
+def run(*args: str, cwd: pathlib.Path) -> None:
     subprocess.run(args, cwd=cwd, check=True)
 
 
-def single(pattern: str) -> Path:
+def single(pattern: str) -> pathlib.Path:
     matches = sorted(DIST.glob(pattern))
     if len(matches) != 1:
         raise RuntimeError(f"Expected one {pattern} in {DIST}, found {len(matches)}")
     return matches[0]
 
 
-def check_contents(wheel: Path, sdist: Path) -> None:
+def check_contents(wheel: pathlib.Path, sdist: pathlib.Path) -> None:
     with zipfile.ZipFile(wheel) as archive:
         members = set(archive.namelist())
         if "sift_lint/__init__.py" not in members or "sift_lint/cli.py" not in members:
@@ -43,7 +43,7 @@ def check_contents(wheel: Path, sdist: Path) -> None:
                 raise RuntimeError(f"Source distribution is missing {expected}")
 
 
-def smoke(artifact: Path, workspace: Path, label: str) -> None:
+def smoke(artifact: pathlib.Path, workspace: pathlib.Path, label: str) -> None:
     env = workspace / label
     venv.EnvBuilder(with_pip=True).create(env)
     scripts = env / ("Scripts" if os.name == "nt" else "bin")
@@ -85,7 +85,7 @@ def main() -> None:
     run(sys.executable, "-m", "twine", "check", "--strict", str(wheel), str(sdist), cwd=ROOT)
 
     with tempfile.TemporaryDirectory(prefix="sift-package-") as directory:
-        workspace = Path(directory)
+        workspace = pathlib.Path(directory)
         smoke(wheel, workspace, "wheel")
         smoke(sdist, workspace, "sdist")
 
