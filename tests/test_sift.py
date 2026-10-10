@@ -2561,3 +2561,43 @@ def test_a_random_sixteen_digit_reference_is_not_a_card(tmp_path):
     rows = "\n".join(f"{i},1234567890123456" for i in range(30))
     findings = lint(tmp_path, f"id,ref\n{rows}\n")
     assert "sensitive-data" not in codes(findings)
+
+
+def test_release_tag_gate():
+    import runpy
+
+    root = Path(__file__).resolve().parent.parent
+    check_tag = runpy.run_path(str(root / ".github/scripts/check_release.py"))["check_tag"]
+
+    check_tag("v1.0.0", "1.0.0")
+    for tag, version in (
+        ("v1.0.1", "1.0.0"),
+        ("v0.1.0", "0.1.0"),
+        ("1.0.0", "1.0.0"),
+        ("v1.0.0rc1", "1.0.0rc1"),
+        ("v01.0.0", "1.0.0"),
+        ("v1.0.0-extra", "1.0.0"),
+        ("v1.0.0/other", "1.0.0"),
+    ):
+        with pytest.raises(ValueError):
+            check_tag(tag, version)
+
+
+def test_release_workflow_is_tag_checked_and_publish_isolated():
+    root = Path(__file__).resolve().parent.parent
+    release = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    dependabot = (root / ".github/dependabot.yml").read_text(encoding="utf-8")
+
+    assert "types: [published]" in release
+    assert "workflow_dispatch:" not in release
+    assert "git merge-base --is-ancestor HEAD origin/main" in release
+    assert 'PYTHONPATH=. python .github/scripts/check_release.py "$RELEASE_TAG"' in release
+    assert "needs: build" in release
+    assert "id-token: write" in release.split("  publish:\n", 1)[1]
+    assert "id-token: write" not in release.split("  publish:\n", 1)[0]
+    publish = release.split("  publish:\n", 1)[1]
+    assert "environment:\n      name: pypi" in publish
+    assert "actions/checkout@" not in publish
+    assert "python -m build" not in publish
+    assert "pypa/gh-action-pypi-publish@" in publish
+    assert "package-ecosystem: github-actions" in dependabot

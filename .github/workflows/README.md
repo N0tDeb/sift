@@ -25,3 +25,22 @@ Workflow actions are pinned to full commit SHAs rather than mutable version
 tags. Checkout does not persist the repository token because these jobs never
 push back to the repository, and the workflow token is explicitly limited to
 read-only repository contents.
+
+## Release publishing
+
+`release.yml` runs only when a GitHub Release is published. It ignores prereleases
+and rejects tags that do not match the package's stable version or point outside
+`main`. The unprivileged build job runs tests and the benchmark, then builds and
+validates a wheel and source distribution. The separate publish job downloads
+those artifacts and publishes through PyPI Trusted Publishing.
+
+The publish job uses the `pypi` GitHub environment and has only the OIDC
+permission needed for publishing. No long-lived PyPI token is stored. Creating
+a branch, pushing a tag, or merging a pull request never triggers publishing.
+
+Before using **Publish release**, configure the `pypi` environment and the
+matching Trusted Publisher on PyPI, then complete the maintainer's release
+checklist. Publishing a release is the deliberate production publishing action.
+
+`.github/dependabot.yml` proposes weekly updates for GitHub Actions. Review the
+updated commit SHA pins before merging those pull requests.
