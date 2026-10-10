@@ -7,7 +7,6 @@ import sys
 
 from sift_lint import __version__
 
-
 TAG_PATTERN = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 
 
