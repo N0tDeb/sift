@@ -40,11 +40,11 @@ asciinema rec sift.cast --cols 100 --rows 42 --idle-time-limit 1.5
 Then run the same three commands, pausing a beat after each:
 
 ```bash
-sift check orders.csv --key order_id
+sift-lint check orders.csv --key order_id
 clear
-sift impact orders.csv --sum total --group-by region
+sift-lint impact orders.csv --sum total --group-by region
 clear
-sift fix orders.csv --min-confidence medium --output clean.csv
+sift-lint fix orders.csv --min-confidence medium --output clean.csv
 exit
 ```
 

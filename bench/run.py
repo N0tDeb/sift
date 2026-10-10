@@ -26,9 +26,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bench.corruptions import CASES, Case  # noqa: E402
-from sift.checks import run_checks  # noqa: E402
-from sift.config import Config  # noqa: E402
-from sift.loading import load  # noqa: E402
+from sift_lint.checks import run_checks  # noqa: E402
+from sift_lint.config import Config  # noqa: E402
+from sift_lint.loading import load  # noqa: E402
 
 HEADER = ["id", "when", "region", "customer", "amount", "postcode", "note"]
 REGIONS = ["North", "South", "East", "West"]

@@ -48,10 +48,10 @@ NON_CSV_SUFFIXES = EXCEL_SUFFIXES | PARQUET_SUFFIXES | {".xls"}
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="sift",
+        prog="sift-lint",
         description="Find the problems in a CSV before they reach your pipeline.",
     )
-    parser.add_argument("--version", action="version", version=f"sift {__version__}")
+    parser.add_argument("--version", action="version", version=f"sift-lint {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def common(sp: argparse.ArgumentParser) -> None:
@@ -187,7 +187,7 @@ def resolve_config(args: argparse.Namespace, anchor: Path) -> Config:
 def guard_output(output: Path | None, *inputs: Path | None) -> None:
     """Refuse to write over a file we were asked to read.
 
-    `sift check data.csv --format html --output data.csv` is an easy typo and
+    `sift-lint check data.csv --format html --output data.csv` is an easy typo and
     it silently replaced the user's data with an HTML report. There is no
     reading of that command where destroying the input is the intent.
     """
@@ -351,7 +351,7 @@ def _run_init(args: argparse.Namespace) -> int:
     if refusable and not args.force:
         print()
         print(
-            "sift: refusing to learn from a file with unresolved problems. "
+            "sift-lint: refusing to learn from a file with unresolved problems. "
             "Pass --force to accept them anyway.",
             file=sys.stderr,
         )
@@ -364,7 +364,7 @@ def _run_init(args: argparse.Namespace) -> int:
         return 0
     if args.output.exists() and not args.force:
         print(
-            f"sift: {terminal_safe(args.output)} already exists. "
+            f"sift-lint: {terminal_safe(args.output)} already exists. "
             "Pass --force to replace it.",
             file=sys.stderr,
         )
@@ -377,7 +377,7 @@ def _run_init(args: argparse.Namespace) -> int:
 
 def _run_impact(args: argparse.Namespace) -> int:
     if not args.sum and not args.group_by:
-        print("sift: pass --sum COLUMN and/or --group-by COLUMN.", file=sys.stderr)
+        print("sift-lint: pass --sum COLUMN and/or --group-by COLUMN.", file=sys.stderr)
         return 2
     config = resolve_config(args, args.path)
     table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
@@ -417,9 +417,9 @@ def _run_fix(args: argparse.Namespace) -> int:
         # Refusing here rather than writing a plausible-looking file: the
         # rows Sift could not parse were padded or truncated on read, so
         # rewriting would make that loss permanent and invisible.
-        print(f"sift: {terminal_safe(ragged[0].message)}", file=sys.stderr)
+        print(f"sift-lint: {terminal_safe(ragged[0].message)}", file=sys.stderr)
         print(
-            "sift: refusing to rewrite a file that did not parse cleanly. "
+            "sift-lint: refusing to rewrite a file that did not parse cleanly. "
             "Fix the quoting at the source, or pass --force to accept the "
             "truncation.",
             file=sys.stderr,
@@ -427,7 +427,7 @@ def _run_fix(args: argparse.Namespace) -> int:
         return 2
 
     if not args.output and not args.dry_run:
-        print("sift: pass --output PATH, or --dry-run to preview.", file=sys.stderr)
+        print("sift-lint: pass --output PATH, or --dry-run to preview.", file=sys.stderr)
         return 2
 
     # `fix` writes delimited text whatever it read. Letting someone
@@ -435,7 +435,7 @@ def _run_fix(args: argparse.Namespace) -> int:
     # tool downstream will open, fail on, and blame them for.
     if args.output and args.output.suffix.lower() in NON_CSV_SUFFIXES:
         print(
-            f"sift: fix writes delimited text, so "
+            f"sift-lint: fix writes delimited text, so "
             f"{terminal_safe(args.output.name)} would "
             "not be a real workbook. Choose a .csv or .tsv path.",
             file=sys.stderr,
@@ -454,14 +454,14 @@ def _run_fix(args: argparse.Namespace) -> int:
     if formula_refusals and not args.dry_run and not args.force:
         print(render_plan(table, plan, destination))
         print(
-            "sift: refusing to write a repaired file while spreadsheet-formula "
+            "sift-lint: refusing to write a repaired file while spreadsheet-formula "
             "content remains. Neutralise those cells first, use --dry-run to "
             "inspect the plan, or pass --force to accept the unresolved risk.",
             file=sys.stderr,
         )
         return 2
 
-    # Write before reporting. `sift fix ... | head` closes the pipe part
+    # Write before reporting. `sift-lint fix ... | head` closes the pipe part
     # way through the summary, and a half-printed report must not mean a
     # file that never got written.
     if not args.dry_run:
@@ -489,7 +489,7 @@ def _run_check(args: argparse.Namespace) -> int:
     targets = discover(args.paths)
     if not targets:
         print(
-            "sift: nothing to check. Supported extensions: "
+            "sift-lint: nothing to check. Supported extensions: "
             + ", ".join(sorted(SUPPORTED)),
             file=sys.stderr,
         )
@@ -568,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
         handler = handlers.get(args.command)
         return handler(args) if handler is not None else 2
     except BrokenPipeError:
-        # `sift check big.csv | head` is a normal thing to do, and should not
+        # `sift-lint check big.csv | head` is a normal thing to do, and should not
         # look like a failure.
         return 0
     except (
@@ -583,7 +583,7 @@ def main(argv: list[str] | None = None) -> int:
         # which is exit 2 — deliberately distinct from exit 1, "we did the job
         # and the file has problems". A pipeline must be able to tell a broken
         # tool from broken data.
-        print(f"sift: {terminal_safe(exc)}", file=sys.stderr)
+        print(f"sift-lint: {terminal_safe(exc)}", file=sys.stderr)
         return 2
 
 

@@ -1,6 +1,6 @@
 """Sift — a linter for tabular data files.
 
-    from sift import lint
+    from sift_lint import lint
     findings = lint("orders.csv")
 
 The library API is deliberately small: load a file, run the checks, get a list

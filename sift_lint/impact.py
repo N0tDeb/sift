@@ -8,7 +8,7 @@ aggregate three ways and showing where they diverge:
   as it loads     what a typed reader gets from the raw file today
   coerced         the same, with unparseable values dropped, which is what
                   `pd.to_numeric(errors="coerce")` and most SQL loaders do
-  repaired        the same aggregate over the file `sift fix` would produce
+  repaired        the same aggregate over the file `sift-lint fix` would produce
 
 The gap between the second and third is the money. Nothing here is a heuristic:
 these are three real computations over the same file, and the difference
@@ -292,7 +292,7 @@ def render(
                 f"   what errors='coerce' would give you"
             )
         lines.append(
-            f"  after sift fix   {fmt_number(total.repaired_total):>16}"
+            f"  after sift-lint fix   {fmt_number(total.repaired_total):>16}"
             f"   from {total.repaired_rows:,} of {total.total_rows:,} rows"
         )
         relative = total.relative

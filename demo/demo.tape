@@ -36,7 +36,7 @@ Show
 Sleep 900ms
 
 # --- Beat 1: what is wrong with this file -----------------------------------
-Type "sift check orders.csv --key order_id"
+Type "sift-lint check orders.csv --key order_id"
 Sleep 600ms
 Enter
 Sleep 5s
@@ -45,9 +45,9 @@ Type "clear" Enter
 Sleep 400ms
 
 # --- Beat 2: how wrong is my number -----------------------------------------
-# The line that does the work: "coerced  -1,998" against "after sift fix
+# The line that does the work: "coerced  -1,998" against "after sift-lint fix
 # 10,149.75". A negative total from a file of positive prices.
-Type "sift impact orders.csv --sum total --group-by region"
+Type "sift-lint impact orders.csv --sum total --group-by region"
 Sleep 600ms
 Enter
 Sleep 6s
@@ -58,7 +58,7 @@ Sleep 400ms
 # --- Beat 3: fix what can be derived, refuse the rest -----------------------
 # The refusal is the point. The dates are genuinely undecidable, so Sift
 # hands them back rather than guessing.
-Type "sift fix orders.csv --min-confidence medium --output clean.csv"
+Type "sift-lint fix orders.csv --min-confidence medium --output clean.csv"
 Sleep 600ms
 Enter
 Sleep 6s

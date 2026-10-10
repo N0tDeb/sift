@@ -20,4 +20,4 @@ paste the finding here
 ```csv
 ```
 
-**Version** — output of `sift --version`
+**Version** — output of `sift-lint --version`

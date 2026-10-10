@@ -6,8 +6,8 @@ Reproduce any of it:
 
 ```bash
 curl -O https://raw.githubusercontent.com/justmarkham/DAT8/master/data/chipotle.tsv
-sift check chipotle.tsv
-sift impact chipotle.tsv --sum item_price --group-by item_name
+sift-lint check chipotle.tsv
+sift-lint impact chipotle.tsv --sum item_price --group-by item_name
 ```
 
 ## Chipotle orders (4,622 rows)
@@ -19,7 +19,7 @@ SUM(item_price)
   as it loads         not a number — the column reads as text, so a loader drops
                       every value it cannot parse: 0 of 4,622 rows survive.
   coerced                         0   what errors='coerce' would give you
-  after sift fix          34,500.16   from 4,622 of 4,622 rows
+  after sift-lint fix          34,500.16   from 4,622 of 4,622 rows
 
 GROUP BY item_name, SUM(item_price)
   50 groups today, 47 after repair.

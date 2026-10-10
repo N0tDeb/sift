@@ -1,7 +1,7 @@
 # Sift reads the nearest sift.toml, walking up from the file being checked.
 # Everything here is optional; these are the defaults.
 #
-# `sift init known_good.csv` will write one of these for you, derived from a
+# `sift-lint init known_good.csv` will write one of these for you, derived from a
 # file you already trust, with the reason for every exemption attached.
 
 [sift]

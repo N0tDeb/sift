@@ -12,7 +12,7 @@ high-cardinality = ["email"]
 
 Silencing per column is almost always better than silencing globally: a `notes` column is *supposed* to be free text, but the same finding on `customer_id` means an identifier leaked into a category field.
 
-`sift init` writes these exemptions for you, with the reason attached.
+`sift-lint init` writes these exemptions for you, with the reason attached.
 
 A test asserts this file lists exactly the codes the source can emit, so it cannot drift out of date.
 
@@ -111,7 +111,7 @@ Nothing here is a defect — the file is fine. These say *this file contains per
 | `loose-schema` | warning | A Parquet column declared as string whose values are all numbers. |
 | `unread-sheets` | info | Other worksheets in the workbook that nothing checked. |
 
-## Drift, from `sift diff`
+## Drift, from `sift-lint diff`
 
 | Code | Severity | Meaning |
 | --- | --- | --- |

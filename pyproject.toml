@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sift-csv"
+name = "sift-lint"
 dynamic = ["version"]
 description = "A linter for tabular data files. Finds the problems that survive a successful load."
 readme = "README.md"
@@ -29,13 +29,13 @@ all = ["openpyxl>=3.1", "pyarrow>=14.0"]
 dev = ["pytest>=7.0", "ruff>=0.4", "openpyxl>=3.1", "pyarrow>=14.0"]
 
 [project.scripts]
-sift = "sift.cli:main"
+sift-lint = "sift_lint.cli:main"
 
 [tool.hatch.version]
-path = "sift/__init__.py"
+path = "sift_lint/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["sift"]
+packages = ["sift_lint"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
