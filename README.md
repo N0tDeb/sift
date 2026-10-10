@@ -12,10 +12,28 @@
 
 A linter for CSV, Excel and Parquet files. It looks for the problems that survive a successful load — the ones that don't raise an exception, don't show up in `df.head()`, and quietly change the number at the bottom of the report.
 
-```
-pip install -e .
+## Installation
+
+Sift is being prepared for its first PyPI release and is **not published yet**.
+Once released, the recommended CLI installation will be:
+
+```bash
+uv tool install sift-lint
 sift-lint check orders.csv
 ```
+
+`uv` installs the command in an isolated environment. A standard `pip install sift-lint`
+will also work after publication. Sift requires Python 3.11 or newer.
+
+To try the current source checkout now:
+
+```bash
+python -m pip install -e .
+sift-lint check examples/orders_messy.csv --key order_id
+```
+
+The example intentionally contains defects, so the `check` command exits with code 1.
+For source development and verification, see [SETUP.md](SETUP.md).
 
 Run against 22 public datasets, it found a price column that sums to zero, a menu with three products split in two by a stray hyphen, and two Titanic passengers whose names have a trailing space. Details, including the three false positives that run exposed, are in [REAL-DATA.md](REAL-DATA.md).
 
@@ -94,12 +112,18 @@ Cross-file references are checked with `--references FILE:LOCAL=FOREIGN`. For ex
 
 ## Other formats, and whole folders
 
-CSV needs nothing installed. Excel and Parquet are optional extras, so the common path stays dependency-free:
+CSV needs no extra dependencies. Excel and Parquet readers are optional:
 
 ```bash
-pip install 'sift-lint[excel]'     # .xlsx, .xlsm
-pip install 'sift-lint[parquet]'   # .parquet
+# Once available on PyPI:
+uv tool install 'sift-lint[all]'     # CSV, .xlsx/.xlsm and .parquet
+
+# Or with pip in a Python environment, after publication:
+python -m pip install 'sift-lint[excel]'
+python -m pip install 'sift-lint[parquet]'
 ```
+
+To enable both readers from a source checkout, use `python -m pip install -e '.[all]'`.
 
 There is a tension worth naming here. Sift's method is to read every value as text and infer the type from evidence, because a CSV has no types and the reader's guess is what goes wrong. Excel and Parquet *do* carry types — so should Sift just trust them?
 
@@ -391,18 +415,12 @@ The suite includes regression tests for clean-data silence, complete repair audi
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a PR:
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development workflow and expectations for new checks. Documentation consistency,
+clean-data behavior and benchmark regressions are checked in CI.
 
-```bash
-pip install -e ".[dev]"
-pytest -q            # full test suite
-ruff check .
-python -m bench.run  # recall against known corruptions
-```
-
-Documentation regression tests also stop public behavior from drifting silently: finding codes must stay synchronized with [CODES.md](CODES.md), subcommands must remain documented, the quick-start example is checked against the real fixture, and the workflow description is checked against `ci.yml`. If one of them fails, it is telling you something real.
-
-New checks are judged on one standard above all others: not firing on data that is fine. `bench/` exists to measure that — add a corruption case for anything you add, and run the check against real files before trusting it. Every false positive erodes confidence in every other finding.
+Security issues should be reported privately; see [SECURITY.md](SECURITY.md).
+Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
