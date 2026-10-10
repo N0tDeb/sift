@@ -1465,7 +1465,7 @@ def test_reference_spec_parsing():
 )
 def test_reference_spec_with_windows_absolute_path(path):
     ref = Reference.parse(f"{path}:customer_id=id")
-    assert PureWindowsPath(ref.path) == PureWindowsPath(path)
+    assert PureWindowsPath(str(ref.path)) == PureWindowsPath(path)
     assert ref.local == "customer_id"
     assert ref.foreign == "id"
 
