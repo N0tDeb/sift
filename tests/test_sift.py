@@ -1791,7 +1791,7 @@ def test_ci_actions_are_pinned_and_credentials_are_not_persisted():
     all_uses = []
     for name, text in workflow_text.items():
         uses = re.findall(
-            r"^\s*- uses: ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([^\s#]+)",
+            r"^[ \t]*(?:-[ \t]*)?uses:[ \t]+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([^\s#]+)",
             text,
             re.MULTILINE,
         )
