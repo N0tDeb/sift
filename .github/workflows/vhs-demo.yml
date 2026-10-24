@@ -10,13 +10,16 @@ permissions:
 jobs:
   generate-gif:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
@@ -24,12 +27,12 @@ jobs:
         run: python -m pip install -e .
 
       - name: Generate GIF using VHS
-        uses: charmbracelet/vhs-action@v2
+        uses: charmbracelet/vhs-action@f6d7db07a432fcd3b06772628d36a57f96d95dcf # v2
         with:
           path: demo/demo.tape
 
       - name: Upload generated GIF
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sift-vhs-demo
           path: demo/sift.gif
