@@ -1,0 +1,36 @@
+
+name: Generate Sift VHS Demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate-gif:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Sift
+        run: python -m pip install -e .
+
+      - name: Generate GIF using VHS
+        uses: charmbracelet/vhs-action@v2
+        with:
+          path: demo/demo.tape
+
+      - name: Upload generated GIF
+        uses: actions/upload-artifact@v7
+        with:
+          name: sift-vhs-demo
+          path: demo/sift.gif
+          if-no-files-found: error
