@@ -95,6 +95,10 @@ Terminal output treats file names, column names and example values as untrusted 
 
 Every finding has a stable code. [CODES.md](CODES.md) lists all 63 of them with severity and meaning; a test keeps that list from drifting out of date.
 
+### HTML report preview
+
+![Sift HTML report showing data-quality findings](docs/html-report-preview.png)
+
 ## Commands
 
 | | |
