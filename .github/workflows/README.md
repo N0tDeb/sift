@@ -26,6 +26,21 @@ tags. Checkout does not persist the repository token because these jobs never
 push back to the repository, and the workflow token is explicitly limited to
 read-only repository contents.
 
+## VHS demo generation
+
+`vhs-demo.yml` is a manually triggered workflow that generates
+Sift's animated CLI demonstration.
+
+It installs Sift, runs `demo/demo.tape` using VHS, and uploads
+`demo/sift.gif` as a downloadable workflow artifact.
+
+The generated GIF should be reviewed before being committed to
+the repository.
+
+The workflow uses read-only repository permissions and
+commit-SHA-pinned actions. Running it does not modify the
+repository or publish a release.
+
 ## Release publishing
 
 `release.yml` runs only when a GitHub Release is published. It ignores prereleases
