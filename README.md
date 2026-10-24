@@ -5,8 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Benchmark](https://img.shields.io/badge/recall-28%2F28-brightgreen.svg)](BENCHMARK.md)
 
-<!-- Record with `vhs demo/demo.tape`, then uncomment. See demo/README.md. -->
-<!-- ![Sift finding problems in a CSV](demo/sift.gif) -->
+![Sift CLI demonstration](demo/sift.gif)
 
 **Finds the errors that don't raise errors.**
 
