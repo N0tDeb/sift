@@ -35,7 +35,7 @@ from .inference import is_formula_injection
 from .initialize import build as build_config
 from .initialize import describe, summarise
 from .loading import LoadError, Table
-from .output import atomic_write_text
+from .output import atomic_write_text, preflight_output_paths
 from .profiling import ColumnProfile
 from .references import Reference, ReferenceError, check_reference
 from .repair import HIGH, MEDIUM, Refusal, plan_repairs, render_plan, write_csv, write_log
@@ -476,6 +476,12 @@ def _run_fix(args: argparse.Namespace) -> int:
     guard_output(args.output, args.path)
     guard_output(args.log, args.path)
     guard_output(args.output, args.log)
+    if not args.dry_run and args.output is not None:
+        # Both paths must be usable before writing the repaired data. Without
+        # this check a bad --log path can fail after the CSV was replaced.
+        preflight_output_paths(
+            args.output, *([args.log] if args.log is not None else [])
+        )
 
     plan, rows = plan_repairs(table, config, args.min_confidence, args.drop_duplicates)
     private = sensitive_columns(table)

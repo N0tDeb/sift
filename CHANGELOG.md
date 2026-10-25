@@ -5,6 +5,12 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 4 reliability: resolve `impact` selectors using duplicate-column keys,
+  reject non-finite TOML thresholds, preserve existing output file permissions,
+  and preflight repaired-CSV and audit-log paths before starting either write.
+  Invalid delimiter overrides exit cleanly. Multi-file writes remain separate
+  atomic replacements rather than a single transaction.
+
 - Batch 3 audit/privacy: record duplicate-row removals with source-row
   provenance and a source-file hash; keep the original six-column audit header.
   Redact sensitive values from repair refusal summaries, numeric profiles,

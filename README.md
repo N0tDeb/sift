@@ -182,7 +182,7 @@ For multi-file checks, text, JSON and HTML reports support `--output PATH`. If a
 
 The last section is the point. A pipeline that writes a file a day puts the same defect in every one of them, and *"number-as-text in 11 of 12 files"* points at the export that produced them rather than at twelve separate cleanup jobs.
 
-When using `fix --max-rows N`, only `--dry-run` is permitted: writing a repaired copy from a row-limited read would silently omit the unexamined rows. File outputs are staged before replacement, but output and audit-log files are not one atomic multi-file transaction.
+When using `fix --max-rows N`, only `--dry-run` is permitted: writing a repaired copy from a row-limited read would silently omit the unexamined rows. File outputs are staged before replacement; replacement of an existing regular file preserves its permission bits. When both `--output` and `--log` are specified, their destinations are preflighted before either is written. **They remain two separate atomic file replacements, not a single transaction:** a later disk failure or concurrent filesystem change may still leave only one updated file.
 
 ## Fixing, and refusing to fix
 

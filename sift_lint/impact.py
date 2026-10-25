@@ -138,8 +138,13 @@ def prepare_repaired_rows(table: Table, config: Config) -> list[list[str]]:
 
 
 def _repaired_values(table: Table, rows: list[list[str]], name: str) -> list[str]:
-    index = next(i for i, column in enumerate(table.columns) if column.name == name)
-    return [row[index] for row in rows]
+    # A duplicate header is assigned a stable key such as amount#1 by the
+    # loader. Resolve exactly as _values does rather than looking only at the
+    # display name: otherwise valid --sum/--group-by selectors can crash.
+    column = table.by_key(name)
+    if column is None:
+        raise ImpactError(f"No column named {name!r} in {table.path}.")
+    return [row[column.index] for row in rows]
 
 
 def sum_impact(

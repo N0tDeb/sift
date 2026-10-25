@@ -1000,6 +1000,21 @@ The API is small by design so callers do not need to depend on internal module s
 
 ---
 
+### Reliability notes for Batch 4
+
+- `impact` accepts generated keys such as `amount#1` when columns share a
+  display name. The unique loaded column identity is used consistently when
+  reading both original and repaired rows.
+- TOML numeric thresholds must be finite, not `nan` or `inf`; invalid values
+  cause an operational failure rather than silently disabling a check.
+- Single-file output replacement preserves the permission bits of existing
+  regular files, while a newly created output uses private temporary-file
+  defaults. Before `fix` writes repaired data and an audit log, both paths are
+  checked for obvious write failures (such as a missing directory or a
+  directory used as a filename). This is **not** a multi-file transaction:
+  a new disk failure or concurrent filesystem change can still interrupt the
+  second write after the first succeeds.
+
 ## 24. Change-impact guide
 
 When modifying one area, review the neighboring contracts below.

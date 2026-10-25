@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
 
 CONFIG_NAMES = ("sift.toml", ".sift.toml")
@@ -70,7 +71,13 @@ def _number(section: dict, name: str, path: Path) -> float:
     value = section[name]
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ConfigError(f"{path}: {name} must be a number, got {value!r}.")
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ConfigError(f"{path}: {name} must be finite, got {value!r}.") from exc
+    if not isfinite(number):
+        raise ConfigError(f"{path}: {name} must be finite, got {value!r}.")
+    return number
 
 
 def _string_list(section: dict, name: str, path: Path) -> list[str]:
