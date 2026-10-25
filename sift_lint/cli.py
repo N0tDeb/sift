@@ -30,6 +30,7 @@ from .drift import compare
 from .findings import redact_sensitive_findings
 from .impact import (
     ImpactError,
+    aggregate_impact,
     duplicate_impact,
     group_impact,
     prepare_repaired_rows,
@@ -202,10 +203,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     impact_cmd = sub.add_parser(
         "impact",
-        help="Quantify how wrong one aggregate is: SUM, GROUP BY, row counts.",
+        help="Compare SUM, AVG, MIN, MAX and GROUP BY before and after repair.",
     )
     impact_cmd.add_argument("path", type=Path)
     impact_cmd.add_argument("--sum", metavar="COLUMN", help="Numeric column to total.")
+    impact_cmd.add_argument(
+        "--avg", "--mean", metavar="COLUMN", dest="avg",
+        help="Compare numeric average before and after repair.",
+    )
+    impact_cmd.add_argument("--min", metavar="COLUMN", help="Compare numeric minimum.")
+    impact_cmd.add_argument("--max", metavar="COLUMN", help="Compare numeric maximum.")
     impact_cmd.add_argument("--group-by", metavar="COLUMN", help="Column to group on.")
     impact_cmd.add_argument("--delimiter")
     impact_cmd.add_argument("--sheet")
@@ -458,13 +465,17 @@ def _run_init(args: argparse.Namespace) -> int:
 
 
 def _run_impact(args: argparse.Namespace) -> int:
-    if not args.sum and not args.group_by:
-        print("sift-lint: pass --sum COLUMN and/or --group-by COLUMN.", file=sys.stderr)
+    if not any((args.sum, args.avg, args.min, args.max, args.group_by)):
+        print(
+            "sift-lint: pass --sum, --avg, --min, --max and/or --group-by COLUMN.",
+            file=sys.stderr,
+        )
         return 2
     config = resolve_config(args, args.path)
     table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
-    if args.sum and table.by_key(args.sum) is None:
-        raise ImpactError(f"No column named {args.sum!r} in {table.path}.")
+    for name in (args.sum, args.avg, args.min, args.max):
+        if name and table.by_key(name) is None:
+            raise ImpactError(f"No column named {name!r} in {table.path}.")
     if args.group_by and table.by_key(args.group_by) is None:
         raise ImpactError(f"No column named {args.group_by!r} in {table.path}.")
     repaired_rows = prepare_repaired_rows(table, config)
@@ -473,6 +484,11 @@ def _run_impact(args: argparse.Namespace) -> int:
         if args.sum
         else None
     )
+    aggregates = [
+        aggregate_impact(table, config, name, metric, repaired_rows=repaired_rows)
+        for metric, name in (("avg", args.avg), ("min", args.min), ("max", args.max))
+        if name
+    ]
     groups = (
         group_impact(
             table,
@@ -491,6 +507,7 @@ def _run_impact(args: argparse.Namespace) -> int:
     print(render_impact(
         table, total, groups, duplicates,
         redact_groups=args.group_by in private,
+        aggregates=aggregates,
     ))
     return 0
 

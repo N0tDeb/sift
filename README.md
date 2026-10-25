@@ -136,7 +136,7 @@ Every finding has a stable code. [CODES.md](https://github.com/N0tDeb/sift/blob/
 | `sift-lint check FILE...` | Lint one file, several, or a whole directory. |
 | `sift-lint diff BASELINE FILE` | Compare against a known-good file: dropped columns, type changes, new categories, null-rate jumps, distribution shifts. |
 | `sift-lint fix FILE --output clean.csv` | Write a repaired copy and a list of refused changes. Add `--log changes.csv` for an optional audit of cell edits and duplicate-row deletions; values in detected sensitive columns are redacted. |
-| `sift-lint impact FILE --sum COL --group-by COL` | Quantify how wrong one specific aggregate is, in the units of the aggregate. |
+| `sift-lint impact FILE --sum COL --group-by COL` | Quantify how wrong SUM or GROUP BY may be. Add `--avg`, `--min`, or `--max` to compare additional numeric aggregates. |
 | `sift-lint init FILE` | Learn a `sift.toml` from a file you already trust, with the reason for every exemption written down. |
 | `sift-lint profile FILE` | Describe every column — type, null rate, cardinality, range. No judgement. |
 
@@ -315,6 +315,22 @@ DUPLICATE ROWS
 The headline number there is real and worth staring at: a `SUM` over this file returns **-1,998** — the only two values `float()` can read are the `-999` placeholders. Everything else is `$1,065.11` and gets dropped. No exception is raised. The dashboard just shows a negative total.
 
 Nothing in this command is a heuristic. It computes the same aggregate three ways over the same file — as a typed loader reads it, with unparseable values coerced away, and over the repaired copy — and the causes it lists are a decomposition of the difference, not a gesture at it. They add up exactly, and a test enforces that they do.
+
+Additional numerical comparisons can be requested individually or together:
+
+```bash
+sift-lint impact orders.csv --avg order_total --min order_total --max order_total
+```
+
+`--mean` is an alias for `--avg`. These computations use only numeric rows under
+strict coercion versus numeric rows after the same medium-confidence repair plan
+used for `--sum`; they show each denominator explicitly. If no numbers survive,
+Sift prints `n/a`, never a fabricated zero. Ambiguous numeric conventions remain
+a hard error. Unlike SUM, AVG/MIN/MAX differences are **not additive** and do
+not carry the SUM cause decomposition. `--group-by` remains a distinct
+label-normalization analysis; `--sum` continues to supply its measure weights.
+For GROUP BY, percentages now use **absolute amount at risk** so a positive and
+negative transaction cannot cancel each other out; the net amount may be zero.
 
 ## The dot and the comma
 

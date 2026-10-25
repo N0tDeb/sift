@@ -1358,3 +1358,19 @@ and underscores and do not permit path separators or dots. Config thresholds
 are still read from the **current** file's config during comparison. These
 snapshots do not provide automatic historical trends, a remote registry,
 encryption, or transactional coordination with an external data pipeline.
+
+### Impact analysis extensions (Batch 10)
+
+`impact --avg COLUMN`, `--min COLUMN`, and `--max COLUMN` compare strictly
+coerced input with a medium-confidence repaired snapshot, optionally alongside
+`--sum`. Each result includes numeric row counts; a dataset without numeric
+observations displays `n/a`, not zero. AVG divides by parseable numeric rows,
+not total rows. All numeric impact estimates remain blocked for undecidable or
+conflicting numeric conventions. `--mean` aliases `--avg`.
+
+`GROUP BY` measures affected *absolute* value, not signed net movement: a
+negative transaction and an equal positive one under inconsistent labels both
+count toward exposure. `GroupImpact.total_amount` retains the historical signed
+net sum for API consumers, and `total_magnitude` is the absolute denominator.
+The computed values illustrate ingestion and potential repair impact; they are
+not a promise that Sift's proposed repair is correct for every domain.

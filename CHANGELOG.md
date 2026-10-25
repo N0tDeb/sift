@@ -5,6 +5,12 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 10 impact extensions: compare AVG, MIN and MAX before and after
+  medium-confidence repair, show numeric-row counts and distinguish unavailable
+  aggregates from zero; keep existing SUM/GROUP BY flags and default behavior.
+  GROUP BY measured exposure now uses absolute weights so credits and debits
+  cannot cancel in its estimated percentage; signed API totals remain available.
+
 - Batch 9 named local baselines: save, list, inspect, verify and deliberately
   delete original-file snapshots; use `diff BASELINE CURRENT --saved` for
   repeatable comparisons with SHA-256 integrity verification. Retain explicit

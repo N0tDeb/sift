@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from math import isfinite
+from math import fsum, isfinite
 
 from .config import Config
 from .inference import is_blank, parse_number
@@ -73,12 +73,42 @@ class GroupImpact:
     merges: list[tuple[str, list[str], float]] = field(default_factory=list)
     misplaced_amount: float = 0.0
     total_amount: float = 0.0
+    total_magnitude: float = 0.0
 
     @property
     def misplaced_share(self) -> float | None:
-        if not self.total_amount:
+        # A net zero sum can still hide a great deal of affected money.
+        # Use the total absolute weight so this share is bounded by 100%.
+        if not self.total_magnitude:
             return None
-        return self.misplaced_amount / abs(self.total_amount)
+        return self.misplaced_amount / self.total_magnitude
+
+
+@dataclass
+class AggregateImpact:
+    """One additional numeric aggregate, compared under identical row selection.
+
+    ``None`` means no numeric values survived; it never represents a real zero.
+    AVG is the arithmetic mean of the numeric rows, not all input rows.
+    """
+
+    metric: str
+    column: str
+    loads_as_number: bool
+    coerced_value: float | None
+    repaired_value: float | None
+    coerced_rows: int
+    repaired_rows: int
+    total_rows: int
+
+    @property
+    def difference(self) -> float | None:
+        if self.coerced_value is None or self.repaired_value is None:
+            return None
+        difference = self.repaired_value - self.coerced_value
+        if not isfinite(difference):
+            raise ImpactError("Non-finite aggregate difference; numeric overflow.")
+        return difference
 
 
 @dataclass
@@ -217,6 +247,68 @@ def sum_impact(
     return impact
 
 
+def aggregate_impact(
+    table: Table,
+    config: Config,
+    column: str,
+    metric: str,
+    *,
+    repaired_rows: list[list[str]] | None = None,
+) -> AggregateImpact:
+    """Quantify AVG/MIN/MAX changes without silently inventing a zero on empty data."""
+    if metric not in ("avg", "min", "max"):
+        raise ImpactError(f"Unsupported aggregate {metric!r}; choose avg, min or max.")
+    _require_unambiguous_measure(table, column)
+    raw = _values(table, column)
+    rows = repaired_rows if repaired_rows is not None else prepare_repaired_rows(table, config)
+    repaired = _repaired_values(table, rows, column)
+    coerced, dropped = _coerce(raw)
+
+    after = []
+    for value in repaired:
+        parsed = parse_number(value) if not is_blank(value) else None
+        if parsed is not None:
+            after.append(parsed.value)
+
+    def compute(values: list[float]) -> float | None:
+        if not values:
+            return None
+        try:
+            if metric == "avg":
+                try:
+                    result = fsum(values) / len(values)
+                except OverflowError:
+                    # The sum can overflow when the *mean* is representable.
+                    # Normalize before summation as an extreme-range fallback.
+                    scale = max(abs(value) for value in values)
+                    result = scale * fsum(
+                        value / scale / len(values) for value in values
+                    )
+            elif metric == "min":
+                result = min(values)
+            else:
+                result = max(values)
+        except OverflowError as exc:
+            raise ImpactError("Numeric aggregate exceeds the supported range.") from exc
+        if not isfinite(result):
+            raise ImpactError("Non-finite aggregate result; numeric overflow.")
+        return result
+
+    impact = AggregateImpact(
+        metric=metric,
+        column=column,
+        loads_as_number=dropped == 0,
+        coerced_value=compute(coerced),
+        repaired_value=compute(after),
+        coerced_rows=len(coerced),
+        repaired_rows=len(after),
+        total_rows=len(raw),
+    )
+    # Fail before rendering if subtraction overflows.
+    _ = impact.difference
+    return impact
+
+
 def group_impact(
     table: Table,
     config: Config,
@@ -248,8 +340,10 @@ def group_impact(
     for original, fixed, weight in zip(raw, repaired, weights, strict=True):
         if original != fixed and not is_blank(fixed):
             folded.setdefault(fixed, {}).setdefault(original, 0.0)
-            folded[fixed][original] += weight
-            misplaced += weight
+            # An affected debit must not cancel an affected credit. Report
+            # absolute exposure, while preserving total_amount's signed sum.
+            folded[fixed][original] += abs(weight)
+            misplaced += abs(weight)
 
     merges = [
         (canonical, sorted(sources), sum(sources.values()))
@@ -257,7 +351,9 @@ def group_impact(
     ]
     merges.sort(key=lambda item: -item[2])
 
-    if not isfinite(misplaced) or not isfinite(sum(weights)):
+    total_amount = sum(weights)
+    total_magnitude = sum(abs(weight) for weight in weights)
+    if not all(isfinite(value) for value in (misplaced, total_amount, total_magnitude)):
         raise ImpactError("Non-finite GROUP BY aggregate; numeric overflow.")
 
     return GroupImpact(
@@ -267,7 +363,8 @@ def group_impact(
         groups_after=len(after),
         merges=merges,
         misplaced_amount=misplaced,
-        total_amount=sum(weights),
+        total_amount=total_amount,
+        total_magnitude=total_magnitude,
     )
 
 
@@ -312,6 +409,7 @@ def render(
     duplicates: DuplicateImpact | None,
     *,
     redact_groups: bool = False,
+    aggregates: list[AggregateImpact] | None = None,
 ) -> str:
     lines = [f"{terminal_safe(table.path)}  {plural(table.n_rows, 'row')}", ""]
 
@@ -353,6 +451,28 @@ def render(
                 lines.append(f"    {plural(cause.rows, 'row'):>9}  {cause.label}{amount}")
         lines.append("")
 
+    for aggregate in aggregates or []:
+        lines.append(f"{aggregate.metric.upper()}({terminal_safe(aggregate.column)})")
+        if not aggregate.loads_as_number:
+            lines.append("  as it loads         not a number — some values load as text")
+        original = (fmt_number(aggregate.coerced_value)
+                    if aggregate.coerced_value is not None else "n/a (no numeric rows)")
+        repaired = (fmt_number(aggregate.repaired_value)
+                    if aggregate.repaired_value is not None else "n/a (no numeric rows)")
+        lines.append(
+            f"  coerced          {original:>16}"
+            f"   from {aggregate.coerced_rows:,} of {aggregate.total_rows:,} rows"
+        )
+        lines.append(
+            f"  after sift-lint fix   {repaired:>16}"
+            f"   from {aggregate.repaired_rows:,} of {aggregate.total_rows:,} rows"
+        )
+        difference = aggregate.difference
+        lines.append(
+            f"  difference       {fmt_number(difference) if difference is not None else 'n/a':>16}"
+        )
+        lines.append("")
+
     if groups:
         measure = f", SUM({terminal_safe(groups.measure)})" if groups.measure else ""
         lines.append(f"GROUP BY {terminal_safe(groups.column)}{measure}")
@@ -362,7 +482,7 @@ def render(
         )
         if groups.merges:
             share = groups.misplaced_share
-            unit = "of the total" if groups.measure else "of rows"
+            unit = "of absolute measured value" if groups.measure else "of rows"
             suffix = f" ({share:.1%} {unit})" if share is not None else ""
             lines.append(
                 f"  {fmt_number(groups.misplaced_amount)} sits under a label that is a "
