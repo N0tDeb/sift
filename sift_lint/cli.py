@@ -26,8 +26,10 @@ from .impact import (
     duplicate_impact,
     group_impact,
     prepare_repaired_rows,
-    render as render_impact,
     sum_impact,
+)
+from .impact import (
+    render as render_impact,
 )
 from .inference import is_formula_injection
 from .initialize import build as build_config
