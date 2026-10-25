@@ -1,4 +1,4 @@
-"""Batch 10: numeric aggregate impact and signed GROUP BY exposure."""
+"""Numeric aggregate impact and signed GROUP BY exposure."""
 
 from __future__ import annotations
 

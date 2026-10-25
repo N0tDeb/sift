@@ -1,4 +1,4 @@
-"""Batch 7 opt-in roles and validation: CLI, API, privacy and safe repair."""
+"""Column roles and validation: CLI, API, privacy and safe repair."""
 
 from __future__ import annotations
 

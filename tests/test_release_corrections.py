@@ -1,4 +1,4 @@
-"""Regression tests for the independent post-Batch-5 release audit."""
+"""Regression tests for source validation and release correctness."""
 
 from __future__ import annotations
 

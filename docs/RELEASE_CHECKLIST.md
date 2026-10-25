@@ -1,24 +1,24 @@
 # Sift release-readiness checklist
 
-This checklist applies to the **unreleased source candidate**. It is not a
-release announcement or authorization to merge, tag, or publish. The current
-public PyPI release remains independent of the draft PR until deliberately
-published. Green CI is necessary, but it does not prove the absence of bugs.
+Use this checklist for each candidate release. Passing the checks does not
+authorize a merge, GitHub Release, or PyPI publication; those require separate
+maintainer decisions. A version change on `main` does not update PyPI. Green
+CI is necessary, but it does not prove the absence of bugs.
 
-## Review the cumulative pull request
+## Review the release changes
 
-- [ ] Confirm that every intended commit is in the draft PR and the target is
-  the expected `main` commit; review the cumulative code diff, not just the
-  final feature batch.
-- [ ] Reconcile known issues and limitations in `docs/FINAL_REVIEW.md`, the
+- [ ] Review the full release diff against the previously published tag,
+  including files changed by earlier pull requests. Verify the intended
+  candidate and target branch before merging.
+- [ ] Reconcile known issues and limitations in `docs/PERFORMANCE.md`, the
   changelog, `SECURITY.md`, and the public README. Do not claim that Sift is
   fully streaming, free of false positives, or guaranteed to redact all secrets.
 - [ ] Review changes to the Python library API, finding-code semantics,
   command flags, configuration keys, and report formats for compatibility.
 - [ ] Review any third-party dependencies and the supported Python-version
   matrix. Reassess vulnerability advisories and supported minimum versions.
-- [ ] Decide which new features warrant the next public version. The version
-  is **not** bumped by the feature batches automatically.
+- [ ] Choose the next public version based on compatibility and the changelog.
+  Version updates are deliberate and do not publish the package.
 - [ ] Review security-sensitive operations: `fix` refusal rules, formula
   safety, privacy and audit-log redaction, baseline storage, and multi-output
   partial-write limitations. Do not commit private baseline snapshots.
@@ -44,12 +44,10 @@ published. Green CI is necessary, but it does not prove the absence of bugs.
 
 ## Merge and release only with maintainer approval
 
-- [ ] Consider branch protection or a ruleset on `main` requiring the
-  appropriate checks. GitHub currently must be configured by the maintainer;
-  documenting this does not enable protection.
-- [ ] After review and explicit approval, merge the intended PR, verify the
-  new `main` commit and its CI results, and choose the next version using the
-  compatibility and changelog review.
+- [ ] Confirm `main` branch protection or a ruleset requires the appropriate
+  CI checks and restricts force pushes.
+- [ ] After review and explicit approval, merge the intended PR and verify the
+  resulting `main` commit, its tracked files and its CI results.
 - [ ] Update `sift_lint/__init__.py` and finalize `CHANGELOG.md` release notes
   in a reviewed commit. Confirm the stable tag `vX.Y.Z` matches the package
   version using `.github/scripts/check_release.py`.
@@ -59,6 +57,3 @@ published. Green CI is necessary, but it does not prove the absence of bugs.
 - [ ] Only after explicit publishing approval, create the matching tag and
   publish a stable GitHub Release, then verify the published artifacts,
   installation, CLI version and package links.
-
-The original personal/private master archive is out of scope for the public
-repository review and must be discussed separately.

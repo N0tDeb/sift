@@ -1,4 +1,4 @@
-"""Batch 9: named baseline behavior, raw-data privacy and integrity."""
+"""Named baseline behavior, raw-data privacy and integrity."""
 
 from __future__ import annotations
 

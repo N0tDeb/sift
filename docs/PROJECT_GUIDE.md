@@ -6,9 +6,9 @@
 
 Sift is a Python linter for tabular data files. Its focus is not whether a file can be opened, but whether the file contains values or structure that can silently change downstream results after a successful load. CSV is the dependency-free core path; Excel and Parquet are optional formats.
 
-This guide documents the architecture, command-line behavior, source modules, design decisions, safety properties, testing strategy, performance choices, extension points, and operational expectations of the definitive project state.
+This guide documents the architecture, command-line behavior, source modules, design decisions, safety properties, testing strategy, performance choices, extension points, and operational expectations of the current implementation.
 
-**Repository navigation:** [README](../README.md) · [finding codes](../CODES.md) · [benchmark](../BENCHMARK.md) · [final review & performance](FINAL_REVIEW.md) · [real-data notes](../REAL-DATA.md) · [setup](../SETUP.md) · [changelog](../CHANGELOG.md) · [contributing](../CONTRIBUTING.md) · [security](../SECURITY.md) · [tests](../tests/test_sift.py) · [CI workflow](../.github/workflows/ci.yml)
+**Repository navigation:** [README](../README.md) · [finding codes](../CODES.md) · [benchmark](../BENCHMARK.md) · [performance observations](PERFORMANCE.md) · [real-data notes](../REAL-DATA.md) · [setup](../SETUP.md) · [changelog](../CHANGELOG.md) · [contributing](../CONTRIBUTING.md) · [security](../SECURITY.md) · [tests](../tests/test_sift.py) · [CI workflow](../.github/workflows/ci.yml)
 
 ## Contents
 
@@ -75,9 +75,9 @@ Sift is not a database, schema registry, dataframe engine, ETL orchestrator, web
 
 ## 2. Verified baseline
 
-The definitive project state has the following properties:
+The current source configuration has the following properties:
 
-| Property | Definitive state |
+| Property | Current source |
 |---|---|
 | Project version | `1.1.0` |
 | Distribution name | `sift-lint` |
@@ -173,7 +173,7 @@ sift/
 │   ├── orders.csv
 │   └── sift.gif
 ├── docs/
-│   ├── FINAL_REVIEW.md
+│   ├── PERFORMANCE.md
 │   ├── PROJECT_GUIDE.md
 │   ├── RELEASE_CHECKLIST.md
 │   └── html-report-preview.png
@@ -639,7 +639,7 @@ Preview safety flags describe known content risks, not destination validity or
 cross-file transactional guarantees; a bounded `--max-rows` preview explicitly
 reports that it cannot safely be exported as a complete repaired file.
 
-### GitHub annotation format (Batch 12)
+### GitHub annotation format
 
 `check --format github` is an opt-in workflow-command reporter. It maps error,
 warning and info to GitHub's `error`, `warning` and `notice` annotations, for
@@ -891,7 +891,7 @@ Cross-file reference tables are cached within one CLI check command.
 ### Memory trade-off
 
 The design intentionally retains values as Python strings so it can reason about exactly what the source contained before typed coercion. That costs memory compared with compact typed arrays. The small, bounded
-benchmark in [the final review](FINAL_REVIEW.md) is an observation from one
+benchmark in [the performance observations](PERFORMANCE.md) is an observation from one
 Linux environment, not a safe input-size limit or production SLA.
 
 ---
@@ -1080,7 +1080,7 @@ The API is small by design so callers do not need to depend on internal module s
 
 ---
 
-### Reliability notes for Batch 4
+### Output and selector reliability
 
 - `impact` accepts generated keys such as `amount#1` when columns share a
   display name. The unique loaded column identity is used consistently when
@@ -1358,10 +1358,10 @@ Escaping untrusted control and bidirectional formatting characters before embedd
 
 ## Maintenance note
 
-See the [maintainer release checklist](RELEASE_CHECKLIST.md) before any merge or publication. This guide tracks the current Sift development state. Update it alongside public behavior or architecture changes. In particular, keep command options, finding-code counts, CI behavior, optional dependencies, benchmark claims and limitations synchronized with the source and tests.
+See the [maintainer release checklist](RELEASE_CHECKLIST.md) before any merge or publication. This guide describes the current Sift source. Update it alongside public behavior or architecture changes. In particular, keep command options, finding-code counts, CI behavior, optional dependencies, benchmark claims and limitations synchronized with the source and tests.
 
 
-## Named local baselines (Batch 9)
+## Named local baselines
 
 `sift-lint baseline save NAME FILE` saves the **exact original file bytes**,
 not inferred profiles, in `.sift/baselines/NAME/`. The manifest records UTC
@@ -1395,7 +1395,7 @@ are still read from the **current** file's config during comparison. These
 snapshots do not provide automatic historical trends, a remote registry,
 encryption, or transactional coordination with an external data pipeline.
 
-### Impact analysis extensions (Batch 10)
+### Impact analysis extensions
 
 `impact --avg COLUMN`, `--min COLUMN`, and `--max COLUMN` compare strictly
 coerced input with a medium-confidence repaired snapshot, optionally alongside
