@@ -82,6 +82,11 @@ def redact_sensitive_findings(
 
     redacted: list[Finding] = []
     for finding in findings:
+        # Duplicate-row examples contain values from several columns but have
+        # no column owner. Suppress them if any column is sensitive.
+        if finding.code == "duplicate-rows" and finding.column is None:
+            redacted.append(replace(finding, examples=[]))
+            continue
         if finding.column not in columns or finding.code in _SENSITIVE_CODES:
             redacted.append(finding)
             continue

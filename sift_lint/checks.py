@@ -1027,6 +1027,17 @@ def check_sensitive_data(table: Table, config: Config) -> list[Finding]:
 
     for column in table.columns:
         profile = column.profile
+        if normalize_label(column.name) in SENSITIVE_NAMES:
+            findings.append(
+                Finding(
+                    "sensitive-column-name",
+                    Severity.INFO,
+                    f"{column.name!r} is named like a field that carries personal "
+                    "or financial data. Sift has not looked at the values.",
+                    column=column.name,
+                    detail={"column_index": column.index},
+                )
+            )
         if profile.kind == EMPTY:
             continue
         present = profile.n_present

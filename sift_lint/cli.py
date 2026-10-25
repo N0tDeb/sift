@@ -107,7 +107,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fix_cmd.add_argument("path", type=Path)
     fix_cmd.add_argument("--output", type=Path, help="Where to write the repaired file.")
-    fix_cmd.add_argument("--log", type=Path, help="Write a CSV of every cell changed.")
+    fix_cmd.add_argument(
+        "--log", type=Path,
+        help="Write a CSV audit of cell changes and deleted duplicate rows.",
+    )
     fix_cmd.add_argument(
         "--min-confidence",
         choices=(HIGH, MEDIUM),
@@ -224,8 +227,8 @@ def exit_code(findings: list, config: Config) -> int:
     return 1 if any(f.severity.rank >= threshold for f in findings) else 0
 
 
-def _profile_row(profile: ColumnProfile) -> str:
-    stats = profile.stats()
+def _profile_row(profile: ColumnProfile, *, sensitive: bool = False) -> str:
+    stats = None if sensitive else profile.stats()
     extra = ""
     if stats:
         extra = (
@@ -346,15 +349,18 @@ def _run_profile(args: argparse.Namespace) -> int:
         f"{plural(len(table.columns), 'column')}"
     )
     print()
+    private = sensitive_columns(table)
     for column in table.columns:
-        print(_profile_row(column.profile))
+        print(_profile_row(column.profile, sensitive=column.name in private))
     return 0
 
 
 def _run_init(args: argparse.Namespace) -> int:
     guard_output(args.output, args.path)
     table = load_any(args.path, args.delimiter, args.sheet)
-    findings = run_checks(table, Config())
+    findings = redact_sensitive_findings(
+        run_checks(table, Config()), sensitive_columns(table)
+    )
     _, refusable = describe(findings)
 
     print(summarise(table, findings, Config()))
@@ -416,7 +422,11 @@ def _run_impact(args: argparse.Namespace) -> int:
     duplicates = duplicate_impact(
         table, config, args.sum, repaired_rows=repaired_rows
     )
-    print(render_impact(table, total, groups, duplicates))
+    private = sensitive_columns(table)
+    print(render_impact(
+        table, total, groups, duplicates,
+        redact_groups=args.group_by in private,
+    ))
     return 0
 
 
@@ -468,6 +478,7 @@ def _run_fix(args: argparse.Namespace) -> int:
     guard_output(args.output, args.log)
 
     plan, rows = plan_repairs(table, config, args.min_confidence, args.drop_duplicates)
+    private = sensitive_columns(table)
     destination = str(args.output) if args.output else "(dry run)"
 
     if excel_formulas:
@@ -478,7 +489,7 @@ def _run_fix(args: argparse.Namespace) -> int:
             Refusal(None, "excel-formulas", excel_formulas[0].message)
         )
         if not args.dry_run:
-            print(render_plan(table, plan, destination))
+            print(render_plan(table, plan, destination, private))
             print(
                 "sift-lint: refusing to export a selected Excel sheet containing "
                 "formulas, even with --force. Select a formula-free sheet or "
@@ -516,7 +527,7 @@ def _run_fix(args: argparse.Namespace) -> int:
     header_hazard = any(is_formula_injection(name) for name in table.header)
     introduced = introduced or (header_hazard and not args.force)
     if introduced and not args.dry_run:
-        print(render_plan(table, plan, destination))
+        print(render_plan(table, plan, destination, private))
         print(
             "sift-lint: refusing newly introduced formula-like CSV content or "
             "an unsafe header. Correct the source or repair policy first.",
@@ -528,7 +539,7 @@ def _run_fix(args: argparse.Namespace) -> int:
         refusal for refusal in plan.refusals if refusal.rule == "formula-injection"
     ]
     if formula_refusals and not args.dry_run and not args.force:
-        print(render_plan(table, plan, destination))
+        print(render_plan(table, plan, destination, private))
         print(
             "sift-lint: refusing to write a repaired file while spreadsheet-formula "
             "content remains. Neutralise those cells first, use --dry-run to "
@@ -543,9 +554,11 @@ def _run_fix(args: argparse.Namespace) -> int:
     if not args.dry_run:
         write_csv(args.output, table.header, rows, table.delimiter)
         if args.log:
-            write_log(args.log, plan, sensitive_columns(table))
+            write_log(
+                args.log, plan, private, source_path=table.path, header=table.header
+            )
 
-    print(render_plan(table, plan, destination))
+    print(render_plan(table, plan, destination, private))
     if args.dry_run:
         return 0
 

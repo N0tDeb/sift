@@ -5,6 +5,12 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 3 audit/privacy: record duplicate-row removals with source-row
+  provenance and a source-file hash; keep the original six-column audit header.
+  Redact sensitive values from repair refusal summaries, numeric profiles,
+  sensitive group labels in impact reports, and unscoped duplicate examples.
+  Escape formula-like values in audit logs without silently discarding them.
+
 - Batch 2 data correctness: reject malformed CSV quoting and files without a
   usable header, including in `fix --force`; require populated drift baselines.
   Treat grouping-shaped numeric values as ambiguous unless the column contains

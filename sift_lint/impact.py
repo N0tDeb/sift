@@ -305,6 +305,8 @@ def render(
     total: SumImpact | None,
     groups: GroupImpact | None,
     duplicates: DuplicateImpact | None,
+    *,
+    redact_groups: bool = False,
 ) -> str:
     lines = [f"{terminal_safe(table.path)}  {plural(table.n_rows, 'row')}", ""]
 
@@ -362,11 +364,16 @@ def render(
                 f"spelling of another{suffix}:"
             )
             for canonical, sources, amount in groups.merges[:5]:
-                spellings = ", ".join(terminal_safe(repr(source)) for source in sources)
-                lines.append(
-                    f"    {spellings} belongs to {terminal_safe(repr(canonical))}  "
-                    f"{fmt_number(amount)}"
-                )
+                if redact_groups:
+                    lines.append(
+                        f"    [redacted sensitive group labels]  {fmt_number(amount)}"
+                    )
+                else:
+                    spellings = ", ".join(terminal_safe(repr(source)) for source in sources)
+                    lines.append(
+                        f"    {spellings} belongs to {terminal_safe(repr(canonical))}  "
+                        f"{fmt_number(amount)}"
+                    )
         lines.append("")
 
     if duplicates and duplicates.extra_rows:

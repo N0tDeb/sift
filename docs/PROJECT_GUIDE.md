@@ -626,7 +626,14 @@ Number edits are performed as text, not by round-tripping the file through `floa
 
 ### Audit log
 
-When `--log` is requested, each changed cell records the location, before value, after value and rule. Sensitive columns redact before/after values in the audit output.
+When `--log` is requested, each changed cell and removed duplicate row has an
+entry with a source-line location and the responsible rule. The six-column
+CSV includes a `source-sha256` provenance record at line 0. Row removals
+include an original positional-value snapshot, the retained row's source line,
+and whether a duplicate emerged after normalization. Sensitive values are
+redacted, and formula-like audit cells use reversible `json:` encoding.
+The source file must be retained for recovery: the log is not a standalone
+byte-for-byte patch, especially when sensitive values were redacted.
 
 ### Idempotency
 
@@ -748,7 +755,10 @@ The sensitive-data detector itself does not emit raw examples. More importantly,
 
 If a column appears sensitive, another unrelated finding on that column is not allowed to leak a raw source value through its examples, message or free-form detail. Safe numeric metadata can remain.
 
-This property also reaches repair audit logs and public drift output.
+This also covers repair-refusal summaries, duplicate-row examples without a
+single owning column, audit logs, numeric profile extrema, sensitive group
+labels in `impact`, and public drift output. Detection remains heuristic: the
+system cannot guarantee identification of every confidential field.
 
 ### 18.3 Spreadsheet-formula risk
 

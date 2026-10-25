@@ -104,7 +104,7 @@ Every finding has a stable code. [CODES.md](https://github.com/N0tDeb/sift/blob/
 |---|---|
 | `sift-lint check FILE...` | Lint one file, several, or a whole directory. |
 | `sift-lint diff BASELINE FILE` | Compare against a known-good file: dropped columns, type changes, new categories, null-rate jumps, distribution shifts. |
-| `sift-lint fix FILE --output clean.csv` | Write a repaired copy and a list of refused changes. Add `--log changes.csv` for an optional cell-level audit log (sensitive values are redacted). |
+| `sift-lint fix FILE --output clean.csv` | Write a repaired copy and a list of refused changes. Add `--log changes.csv` for an optional audit of cell edits and duplicate-row deletions; values in detected sensitive columns are redacted. |
 | `sift-lint impact FILE --sum COL --group-by COL` | Quantify how wrong one specific aggregate is, in the units of the aggregate. |
 | `sift-lint init FILE` | Learn a `sift.toml` from a file you already trust, with the reason for every exemption written down. |
 | `sift-lint profile FILE` | Describe every column — type, null rate, cardinality, range. No judgement. |
@@ -215,14 +215,14 @@ Left alone (3):
 Findings: 24 before, 13 after. 3 left for a human.
 ```
 
-Stripping `$` from `$1,200` is derivable: the number was always 1200 and the formatting was decoration. Choosing between day-first and month-first when nothing in the column proves either is not derivable, and no confidence setting will make Sift do it.
+Removing currency formatting is safe only with sufficient evidence of the numeric convention; `$1,200` alone can be ambiguous. Choosing between day-first and month-first when nothing in the column proves either is not derivable, and no confidence setting will make Sift do it.
 
 **High confidence** is mechanical and meaning-preserving: trim whitespace, blank out `N/A`, strip currency and thousands separators, normalise dates *when the column proves its own format*. **Medium** adds judgement calls: folding `north`/`North ` to one spelling, turning repeated `-999` placeholders into nulls. A rule applies to a whole column or not at all — half-applying one leaves the column in a state that is neither the original nor the repair.
 
 Three design decisions worth the words:
 
 - **Numbers are edited as text, never round-tripped through `float()`.** Reformatting would change how many decimals the file had. The parse is used only to confirm the edit didn't change the value.
-- **`--log` writes every changed cell** with its line number, before, after, and the rule responsible. Replaying that log against the original reproduces the output exactly — there's a test for it. A cleaned file you can't diff against the original is just a different unverified file.
+- **`--log` records every changed cell and deleted duplicate row** with source-line provenance and the responsible rule. The log includes a SHA-256 fingerprint of the input for verification against the retained original. Privacy redaction and CSV normalization mean it is **not** a standalone, byte-for-byte reversible patch. A cleaned file you cannot verify against the original is just a different unverified file.
 - **`fix` refuses unsafe rewrites by default.** Ragged rows get padded or truncated on read, so rewriting could destroy data. Formula-like CSV values (`=`, `+`, `-`, or `@`, excluding ordinary signed numbers) are detected even in mostly numeric columns, including after leading whitespace/newlines. Affected columns remain unchanged and normal writes are refused; `--force` can accept *existing* CSV risks but cannot create a new formula risk. Excel `.xlsx`/`.xlsm` formula cells in the selected sheet block `fix` even with `--force`, because exporting their cached values can silently lose formulas or blank cells. `--dry-run` explains refusals without writing. Other Excel sheets are not exported or checked.
 
 Running `fix` twice changes nothing the second time. Also a test.
@@ -329,6 +329,18 @@ Committing a baseline file next to the data turns `diff` into a regression test 
 **Dates** — day-first/month-first ambiguity, graded by how much of the column proves its own format, mixed layouts within a column, future dates, dates before 1900, placeholder dates (`1970-01-01`, `9999-12-31`).
 
 **Missing data** — null rates against configurable thresholds, missing values written as text (`N/A`, `unknown`, `-`), numeric sentinels (`-999`) that will be averaged as real values, empty and constant columns.
+
+**Repair audit format** — `fix --log audit.csv` keeps the six fields
+`line,column,rule,confidence,before,after`. It now includes a `source-sha256`
+entry (line 0), cell-change entries, and `drop-duplicate-row` entries with
+`column=[row]`. Cell records use unique keys for duplicate headers. A deletion's `before` field is JSON containing positional
+original values, the retained row's source line and whether duplication arose
+only after normalization. Potential spreadsheet-formula payloads in ordinary
+cells use the reversible `json:` encoding; values beginning with `json:` use
+the same encoding. Retain the **original input** for verification and recovery:
+redacted sensitive values cannot be restored from the audit alone. The log is
+not a byte-level reverse patch and does not reconstruct Excel formatting.
+Privacy detection is heuristic; inspect logs before distributing them.
 
 **Sensitive data** — columns holding email addresses, phone numbers, payment card numbers or IBANs, and columns *named* like sensitive fields. Once a column is classified as sensitive, other findings for that column also suppress source-value details, and repair audit logs redact its before/after values.
 

@@ -5,16 +5,17 @@ good: an automatic cleaner that guesses wrong is worse than no cleaner, because
 it destroys the evidence that anything was ever wrong.
 
 So the rule here is that a repair must be *derivable from the file itself*.
-Stripping `$` from `$1,200` is derivable — the number was always 1200 and the
-formatting was decoration. Choosing between day-first and month-first when
+Stripping a currency marker is safe only when the column also establishes its
+number convention. A value like `$1,200` alone can be ambiguous. Choosing
+between day-first and month-first when
 nothing in the column proves either is not derivable, and Sift will not do it
 at any confidence setting. Refusals are output, not silence: the report lists
 what was left alone and why, so the person knows exactly which problems they
 still own.
 
-Every changed cell is written to an audit log with the rule responsible. The
-before/after values are preserved except for columns Sift identifies as
-sensitive, where the serialized log records an explicit redaction marker. A
+Each changed cell and deleted duplicate row can be written to an optional
+audit log with its responsible rule. Before/after values are preserved except
+for columns identified as sensitive, whose values are redacted. A
 cleaned file you cannot account for against the original is just a different
 unverified file.
 """
@@ -22,6 +23,8 @@ unverified file.
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import shutil
 import textwrap
 from collections import Counter, defaultdict
@@ -71,6 +74,7 @@ class Change:
     after: str
     rule: str
     confidence: str
+    column_key: str | None = None  # unique identity when headers repeat
 
 
 @dataclass
@@ -83,10 +87,21 @@ class Refusal:
 
 
 @dataclass
+class DroppedRow:
+    """One deleted source record and the earlier record it duplicated."""
+
+    line: int
+    duplicate_of_line: int
+    original_values: tuple[str, ...]
+    matched_after_normalization: bool
+
+
+@dataclass
 class RepairPlan:
     changes: list[Change] = field(default_factory=list)
     refusals: list[Refusal] = field(default_factory=list)
     dropped_lines: list[int] = field(default_factory=list)
+    dropped_rows: list[DroppedRow] = field(default_factory=list)
 
     def by_rule(self) -> dict[str, list[Change]]:
         grouped: dict[str, list[Change]] = defaultdict(list)
@@ -389,21 +404,39 @@ def plan_repairs(
                 del plan.changes[mark:]
             else:
                 grid[index] = working
+                for change in proposed:
+                    change.column_key = column.key
 
     rows = [list(values) for values in zip(*grid, strict=True)] if grid else []
 
     if drop_duplicates:
-        seen: set[tuple[str, ...]] = set()
+        # Retain source-row identity even after normalizations create a
+        # duplicate. Audit entries are recorded for the rows actually removed,
+        # not merely for the first row of a duplicate group.
+        seen: dict[tuple[str, ...], int] = {}
         kept_rows = []
         for row_index, row in enumerate(rows):
             key = tuple(row)
+            original = tuple(column.values[row_index] for column in table.columns)
+            line = (
+                table.source_lines[row_index] if row_index < len(table.source_lines)
+                else _line(row_index)
+            )
             if key in seen:
-                plan.dropped_lines.append(
-                    table.source_lines[row_index] if row_index < len(table.source_lines)
-                    else _line(row_index)
+                first_index = seen[key]
+                first_original = tuple(
+                    column.values[first_index] for column in table.columns
+                )
+                first_line = (
+                    table.source_lines[first_index]
+                    if first_index < len(table.source_lines) else _line(first_index)
+                )
+                plan.dropped_lines.append(line)
+                plan.dropped_rows.append(
+                    DroppedRow(line, first_line, original, original != first_original)
                 )
                 continue
-            seen.add(key)
+            seen[key] = row_index
             kept_rows.append(row)
         rows = kept_rows
     return plan, rows
@@ -416,13 +449,46 @@ def write_csv(path: Path, header: list[str], rows: list[list[str]], delimiter: s
         writer.writerows(rows)
 
 
+def _safe_log_value(value: str) -> str:
+    """Avoid turning a data-change log into a spreadsheet formula payload.
+
+    `json:` is an explicit, reversible encoding for potentially executable
+    values; that prefix is itself escaped to keep decoding unambiguous.
+    """
+    if is_formula_injection(value) or value.startswith("json:"):
+        return "json:" + json.dumps(value, ensure_ascii=False)
+    return value
+
+
+def _source_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def write_log(
-    path: Path, plan: RepairPlan, sensitive_columns: set[str] | None = None
+    path: Path,
+    plan: RepairPlan,
+    sensitive_columns: set[str] | None = None,
+    *,
+    source_path: Path | None = None,
+    header: list[str] | None = None,
 ) -> None:
+    """Write cell changes and row deletions with the original 6-column header.
+
+    Source and row deletion entries have distinct rule names. To reconstruct
+    source values, retain the original file; redacted log values are deliberate.
+    """
     sensitive = sensitive_columns or set()
     with atomic_text_writer(path, newline="") as handle:
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(["line", "column", "rule", "confidence", "before", "after"])
+        if source_path is not None:
+            writer.writerow([
+                0, "[source]", "source-sha256", "high", _source_digest(source_path), ""
+            ])
         for change in plan.changes:
             before = change.before
             after = change.after
@@ -432,16 +498,48 @@ def write_log(
             writer.writerow(
                 [
                     change.line,
-                    change.column,
+                    _safe_log_value(change.column_key or change.column),
                     change.rule,
                     change.confidence,
-                    before,
-                    after,
+                    _safe_log_value(before),
+                    _safe_log_value(after),
                 ]
             )
+        for dropped in plan.dropped_rows:
+            # Positional values are important: duplicate column names cannot
+            # safely be represented by a dict keyed by header text.
+            values = [
+                REDACTED_SENSITIVE_VALUE
+                if (header is None and sensitive)
+                or (header is not None and index < len(header) and header[index] in sensitive)
+                else value
+                for index, value in enumerate(dropped.original_values)
+            ]
+            snapshot = json.dumps(
+                {
+                    "values": values,
+                    "duplicate_of_line": dropped.duplicate_of_line,
+                    "matched_after_normalization": dropped.matched_after_normalization,
+                },
+                ensure_ascii=False,
+            )
+            writer.writerow([
+                dropped.line, "[row]", "drop-duplicate-row", "high", snapshot, "",
+            ])
 
 
-def render_plan(table: Table, plan: RepairPlan, destination: str) -> str:
+def render_plan(
+    table: Table,
+    plan: RepairPlan,
+    destination: str,
+    sensitive_columns: set[str] | None = None,
+) -> str:
+    if sensitive_columns is None:
+        # The standalone formatter should not leak secrets when callers omit
+        # the optional privacy argument. The CLI passes this explicitly.
+        from .checks import sensitive_columns as detect_sensitive_columns
+
+        sensitive_columns = detect_sensitive_columns(table)
     lines = [f"{terminal_safe(table.path)} to {terminal_safe(destination)}", ""]
     grouped = plan.by_rule()
     if not grouped and not plan.dropped_lines:
@@ -465,8 +563,13 @@ def render_plan(table: Table, plan: RepairPlan, destination: str) -> str:
         for refusal in plan.refusals:
             where = terminal_safe(refusal.column or "file")
             lines.append(f"  {where} [{terminal_safe(refusal.rule)}]")
+            reason = (
+                "Value details withheld because the column appears sensitive."
+                if refusal.column in (sensitive_columns or set())
+                else refusal.reason
+            )
             lines.extend(
-                textwrap.wrap(terminal_safe(refusal.reason), width=width - 4,
+                textwrap.wrap(terminal_safe(reason), width=width - 4,
                               initial_indent="    ",
                               subsequent_indent="    ")
             )
