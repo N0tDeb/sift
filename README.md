@@ -3,623 +3,136 @@
 [![CI](https://github.com/N0tDeb/sift/actions/workflows/ci.yml/badge.svg)](https://github.com/N0tDeb/sift/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/N0tDeb/sift/blob/main/LICENSE)
-[![Benchmark](https://img.shields.io/badge/recall-28%2F28-brightgreen.svg)](BENCHMARK.md)
+[![Controlled benchmark: 28/28](https://img.shields.io/badge/controlled%20benchmark-28%2F28-brightgreen.svg)](https://github.com/N0tDeb/sift/blob/main/BENCHMARK.md)
+
+**Find the data errors that don't raise errors.**
+
+Sift is a command-line linter for CSV, Excel and Parquet files. It checks for problems that a successful import won't reveal: ambiguous dates, numbers stored as text, inconsistent labels, missing references, duplicate keys and changes from a known-good baseline. It explains the potential consequences and offers conservative, auditable repairs when the data provides enough evidence.
 
 ![Sift CLI demonstration](https://raw.githubusercontent.com/N0tDeb/sift/main/demo/sift.gif)
 
-**Finds the errors that don't raise errors.**
+## Install and try it
 
-A linter for CSV, Excel and Parquet files. It looks for the problems that survive a successful load — the ones that don't raise an exception, don't show up in `df.head()`, and quietly change the number at the bottom of the report.
-
-## Installation
-
-For a published release, the recommended isolated CLI installation is:
+Python 3.11 or later is required. For an isolated command-line installation:
 
 ```bash
 uv tool install sift-lint
 sift-lint check orders.csv
 ```
 
-`uv` installs the command in an isolated environment. Alternatively, use
-`python -m pip install sift-lint` inside a Python environment. Sift requires
-Python 3.11 or newer.
-
-To work directly from a source checkout:
+Alternatively, install into a Python environment using `python -m pip install sift-lint`. CSV requires no extra runtime dependencies. For Excel (`.xlsx`/`.xlsm`) and Parquet:
 
 ```bash
-python -m pip install -e .
-sift-lint check examples/orders_messy.csv --key order_id
-```
-
-The example intentionally contains defects, so the `check` command exits with code 1.
-For source development and verification, see [SETUP.md](https://github.com/N0tDeb/sift/blob/main/SETUP.md).
-
-Run against 22 public datasets, it found a price column that sums to zero, a menu with three products split in two by a stray hyphen, and two Titanic passengers whose names have a trailing space. Details, including the three false positives that run exposed, are in [REAL-DATA.md](https://github.com/N0tDeb/sift/blob/main/REAL-DATA.md).
-
-## Upgrading from 1.0.0
-
-Version **1.1.0** adds workbook-wide Excel checks, named local baselines,
-configurable column rules, repair previews, new impact aggregates, and
-opt-in GitHub Actions annotations. Existing command names and Python entry
-points remain, but Sift now rejects more malformed/ambiguous inputs and
-unsafe repairs instead of guessing. Finding counts and CI thresholds can
-change as a result. Review [the 1.1.0 upgrade notes](https://github.com/N0tDeb/sift/blob/main/CHANGELOG.md)
-before upgrading, especially if you automate repairs or parse finding reports.
-
-To upgrade an existing published installation, use `uv tool upgrade sift-lint`
-or `python -m pip install --upgrade sift-lint` in its environment once the new
-version is available on PyPI. Moving source on GitHub does not publish PyPI.
-
-## Documentation
-
-For architecture, design decisions, testing strategy, security, performance, extension guidance, and operational details, see the [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md). Maintainers should also consult the [Release Checklist](https://github.com/N0tDeb/sift/blob/main/docs/RELEASE_CHECKLIST.md) before merging or publishing.
-
-## Named baselines (local)
-
-Use `sift-lint baseline` to save and reuse a specific, unchanged input file in
-recurring drift checks. This is optional; ordinary `diff BASELINE CURRENT` still
-works exactly as before.
-
-```bash
-sift-lint baseline save daily-reference examples/orders_baseline.csv
-sift-lint baseline list
-sift-lint baseline show daily-reference
-sift-lint baseline verify daily-reference
-sift-lint diff daily-reference examples/orders_messy.csv --saved
-# Deletion is irreversible and requires explicit approval:
-sift-lint baseline delete daily-reference --yes
-```
-
-Each named baseline stores a **full copy of the original input** plus a SHA-256
-fingerprint. A saved baseline is never overwritten; use a new name to record
-another snapshot. Sift verifies the fingerprint before comparing and exits with
-code 2 if it changes. `--delimiter` and `--sheet` supplied during `baseline save`
-are retained for saved comparisons. Override the storage folder using
-`baseline ... --store DIRECTORY` and `diff --saved --baseline-store DIRECTORY`.
-
-By default snapshots live under `.sift/baselines/` relative to the current
-working directory and are Git-ignored. **These files may contain personal
-information, passwords or other raw sensitive values.** Keep the storage
-private; do not commit, upload or share it. No encryption or external cloud
-backup is provided, and the integrity hash is not a cryptographic signature.
-Save from a stable file, not one being written concurrently. Only supported,
-readable files with at least one data row may be saved.
-
-## Why
-
-A CSV has no types. Types appear when something reads it, and the reader guesses. Most of the time the guess is fine. When it isn't, nothing breaks:
-
-- `03/04/2024` is the 3rd of April or the 4th of March. Both parse. Half a year of revenue moves one quarter over.
-- `$1,200` loads as text, so the column is a string, so the sum is `"$1,200$980..."` or zero.
-- `02134` loads as the number 2134, and the zip code is gone.
-- `-999` was a placeholder for "unknown" upstream. It's now in your average.
-- `North`, `north`, and `North ` are three regions in the group-by.
-
-None of these raise an error. That's the whole problem: a file that loads is assumed to be fine. Sift's job is to say what a careful person would say after an hour of squinting at the data, in about a second.
-
-## What it looks like
-
-```
-$ sift-lint check examples/orders_messy.csv --key order_id
-examples/orders_messy.csv  40 rows, 10 columns
-
-error   key-not-unique  order_id
-        Key column 'order_id' repeats 2 values. Joining on it will multiply rows.
-        e.g. A-1033, A-1036
-
-error   conflicting-date-formats  order_date
-        'order_date' holds two date formats mixed together. 12 rows can only be day-
-        first and 9 can only be month-first, so no single reading fits. The column holds
-        two formats mixed together and cannot be repaired without knowing which rows
-        came from where. Every row is individually valid, so nothing will error — the
-        dates will simply be wrong.
-        e.g. 07/05/2024, 07/01/2024, 04/04/2024
-
-error   mixed-types  quantity
-        'quantity' is 2.5% non-numeric (1 row). A typed loader will fall back to
-        text for the whole column, or drop these rows.
-        e.g. twelve
-
-warning number-as-text  order_total
-        'order_total' holds numbers written with currency symbols and thousands
-        separators. It will load as text and silently break any arithmetic.
-        e.g. $465.46, $1,065.11, $2,443.74
-
-warning leading-zeros  zip
-        'zip' is all digits and 14 values start with a zero. Reading it as a
-        number destroys them — keep it text.
-        e.g. 02134, 07094, 02139
-
-23 findings: 6 error, 14 warning, 3 info
-```
-
-`--format html` writes a standalone report you can send to whoever owns the data — [sample-report.html](https://github.com/N0tDeb/sift/blob/main/sample-report.html) is one, generated from the example file. `--format json` is for everything else.
-
-Terminal output treats file names, column names and example values as untrusted text: control and Unicode format characters are shown as visible escapes (for example `\\x1b`) instead of being sent to the terminal as control sequences.
-
-Every finding has a stable code. [CODES.md](https://github.com/N0tDeb/sift/blob/main/CODES.md) lists all 70 of them with severity and meaning; a test keeps that list from drifting out of date.
-
-### HTML report preview
-
-![Sift HTML report showing data-quality findings](https://raw.githubusercontent.com/N0tDeb/sift/main/docs/html-report-preview.png)
-
-## Commands
-
-| | |
-|---|---|
-| `sift-lint check FILE...` | Lint one file, several, or a whole directory. |
-| `sift-lint diff BASELINE FILE` | Compare against a known-good file: dropped columns, type changes, new categories, null-rate jumps, distribution shifts. |
-| `sift-lint fix FILE --output clean.csv` | Write a repaired copy and a list of refused changes. Add `--log changes.csv` for an optional audit of cell edits and duplicate-row deletions; values in detected sensitive columns are redacted. |
-| `sift-lint impact FILE --sum COL --group-by COL` | Quantify how wrong SUM or GROUP BY may be. Add `--avg`, `--min`, or `--max` to compare additional numeric aggregates. |
-| `sift-lint init FILE` | Learn a `sift.toml` from a file you already trust, with the reason for every exemption written down. |
-| `sift-lint profile FILE` | Describe every column — type, null rate, cardinality, range. No judgement. |
-
-Useful flags: `--min-confidence high|medium`, `--dry-run`, `--key ORDER_ID` (must be unique and present), `--format text|json|html`, `--output PATH`, `--fail-on error|warning|info|none`, `--ignore CODE`.
-
-Cross-file references are checked with `--references FILE:LOCAL=FOREIGN`. For example, while checking `orders.csv`, `--references customers.csv:customer_id=id` verifies that every non-empty `orders.customer_id` exists in `customers.id`; broken, non-unique, and normalization-only matches are reported with stable reference finding codes.
-
-### Preview repairs with explanations
-
-`fix` plans changes before writing them. For a machine-readable, **read-only**
-preview (JSON on stdout; no repaired CSV or log is created):
-
-```bash
-sift-lint fix examples/orders_messy.csv --dry-run --format json
-sift-lint fix examples/orders_messy.csv --dry-run --explain
-```
-
-The JSON preview (`schema_version: 1`) lists each proposed cell edit with
-source line, column key, rule, confidence and a data-free explanation; deleted
-duplicate rows include provenance, never complete row contents. It also lists
-refusals, detected output hazards and any risks accepted using `--force`. **Cell values are omitted by default.**
-Add `--show-values` only with `--dry-run --format json` to deliberately include
-before/after contents in *non-sensitive* columns. Sensitive columns remain
-redacted. Detection is heuristic: do not publish previews with `--show-values`
-without reviewing their contents. Use `--min-confidence medium` and
-`--drop-duplicates` to preview those optional repair choices.
-
-`fix --format json` is supported **only** with `--dry-run`; ordinary writes
-keep the existing text summary. `--explain` adds human-readable rule
-explanations to the text summary, including during a real repair. The JSON
-`write_permitted` field reflects known content-safety blockers, **not** a
-filesystem permissions check or guarantee of successful writing; a preview
-with `--max-rows` is never safe to export as a complete file.
-
-## Other formats, and whole folders
-
-CSV needs no extra dependencies. Excel and Parquet readers are optional:
-
-```bash
-# For a published release:
-uv tool install 'sift-lint[all]'     # CSV, .xlsx/.xlsm and .parquet
-
-# Or with pip in a Python environment:
+uv tool install 'sift-lint[all]'
+# Or install the specific extra with pip:
 python -m pip install 'sift-lint[excel]'
 python -m pip install 'sift-lint[parquet]'
 ```
 
-To enable both readers from a source checkout, use `python -m pip install -e '.[all]'`.
-
-There is a tension worth naming here. Sift's method is to read every value as text and infer the type from evidence, because a CSV has no types and the reader's guess is what goes wrong. Excel and Parquet *do* carry types — so should Sift just trust them?
-
-For Parquet, yes. Its schema was written deliberately by a program, so Sift reports what it says and checks the values against it rather than re-deriving types from strings. The interesting question becomes whether the declaration still fits:
-
-```
-warning loose-schema  amount
-        'amount' is declared as string but every value in it is a number.
-        Anything reading this by schema will sort it alphabetically, so 10
-        comes before 9.
-```
-
-For Excel, no. Excel's types were assigned by a spreadsheet, mostly by accident, to data a person pasted in. They are not a declaration — they are a record of what a spreadsheet decided to do, which makes them evidence about the damage rather than a reason to skip looking for it. So Sift reports on the typing itself:
-
-```
-error   partial-excel-dates  when
-        'when' holds real dates in 4 of 5 cells; the rest are text that looks
-        the same on screen. Sorting or filtering this column will not do what
-        it appears to do.
-
-error   formula-error  total
-        'total' contains 1 broken formula result (#REF!, #N/A and friends).
-        These export as literal text and will never parse as anything.
-
-warning preamble-rows  file
-        Skipped 2 rows above the header — a title or spacer written for a
-        human reader. Any tool that does not skip them will read them as data.
-
-info    unread-sheets  file
-        Read sheet 'Orders'. This workbook has 1 other sheet that nothing
-        checked: 'Notes'
-```
-
-### Check every Excel worksheet
-
-By default, `check` and `profile` read the first worksheet (or one selected with
-`--sheet`). To inspect **every worksheet** in `.xlsx`/`.xlsm` files, including
-hidden sheets, opt in to workbook-wide analysis:
+To try the included example from a source checkout:
 
 ```bash
-sift-lint check orders.xlsx --all-sheets
-sift-lint check orders.xlsx --all-sheets --format json --output report.json
-sift-lint profile orders.xlsx --all-sheets
-sift-lint check data/ --all-sheets --fail-on warning
+python -m pip install -e '.[all]'
+sift-lint check examples/orders_messy.csv --key order_id
 ```
 
-`check --all-sheets` reports each worksheet independently, identifying the
-original workbook path and its sheet name in JSON (`files[].file` and
-`files[].sheet`). Other formats in a mixed directory are checked once. An
-unreadable or empty sheet is listed under `unreadable` and makes the command
-exit with code 2; findings on any readable sheet still affect the normal
-`--fail-on` threshold. Reports do not include the usual `unread-sheets` note
-when every sheet was requested. `profile --all-sheets` likewise emits a
-separate section per sheet and returns code 2 if any sheet cannot be read.
+The example contains intentional defects, so a nonzero finding exit status is expected. A sample finding looks like this:
 
-This is **read-only**. `fix`, `init`, `impact` and `diff` still operate on one
-worksheet at a time: use `--sheet NAME` with them. Formula-safety protection
-remains in place for each selected worksheet. `--all-sheets` and `--sheet`
-cannot be combined on a `check` or `profile` command. Workbook-wide checking
-opens each worksheet separately, so large workbooks can take more time and
-memory. Excel support requires `sift-lint[excel]`.
-
-### A folder at a time
-
-`sift-lint check` takes several paths, or a directory it will search:
-
-```
-$ sift-lint check data/
-data/day1.csv        5 error, 14 warning, 3 info
-data/day2.csv        clean
-data/orders.parquet  3 warning, 1 info
-data/orders.xlsx     3 error, 3 warning, 2 info
-data/titanic.csv     2 error, 2 warning, 2 info
-
-Across files:
-  missing-values             4 of 5 files
-  mixed-types                3 of 5 files
-  label-variants             3 of 5 files
+```text
+error   conflicting-date-formats  order_date
+        'order_date' holds two date formats mixed together.
 ```
 
-For multi-file checks, text, JSON and HTML reports support `--output PATH`. If any file cannot be checked, Sift returns exit code `2` even when other files produced findings; the report identifies unreadable files.
+The full example currently reports:
 
-The last section is the point. A pipeline that writes a file a day puts the same defect in every one of them, and *"number-as-text in 11 of 12 files"* points at the export that produced them rather than at twelve separate cleanup jobs.
-
-When using `fix --max-rows N`, only `--dry-run` is permitted: writing a repaired copy from a row-limited read would silently omit the unexamined rows. File outputs are staged before replacement; replacement of an existing regular file preserves its permission bits. When both `--output` and `--log` are specified, their destinations are preflighted before either is written. **They remain two separate atomic file replacements, not a single transaction:** a later disk failure or concurrent filesystem change may still leave only one updated file.
-
-## Fixing, and refusing to fix
-
-Every other tool in this space validates and stops. Sift will repair the damage it can *derive from the file itself*, and refuses the rest out loud.
-
-```
-$ sift-lint fix orders.csv --min-confidence medium --output clean.csv --log changes.csv
-orders.csv to clean.csv
-
-76 cells changed
-  plain-number         38  high    order_total
-  canonical-label      20  medium  customer, region
-  trim-whitespace       9  high    customer, notes, region
-  blank-null            6  high    region
-  sentinel-null         2  medium  order_total
-  collapse-spaces       1  medium  notes
-
-Left alone (3):
-  order_date [iso-date]
-    12 rows can only be day-first and 9 can only be month-first, so no single
-    reading fits. The column holds two formats mixed together and cannot be
-    repaired without knowing which rows came from where.
-  quantity [mixed-types]
-    1 value does not parse as numeric ('twelve'). Whether those rows are typos,
-    notes, or a second unit is a question about the world, not about the file.
-  notes [mojibake]
-    Characters were mangled by a bad encoding round-trip. The original bytes are
-    gone, so any repair here is invention. Re-export the source as UTF-8.
-
-Findings: 24 before, 13 after. 3 left for a human.
+```text
+23 findings: 6 error, 14 warning, 3 info
 ```
 
-Removing currency formatting is safe only with sufficient evidence of the numeric convention; `$1,200` alone can be ambiguous. Choosing between day-first and month-first when nothing in the column proves either is not derivable, and no confidence setting will make Sift do it.
+Sift uses stable finding codes; [CODES.md](https://github.com/N0tDeb/sift/blob/main/CODES.md) lists all 70 of them. See the [example HTML report](https://github.com/N0tDeb/sift/blob/main/sample-report.html) for a shareable output format.
 
-**High confidence** is mechanical and meaning-preserving: trim whitespace, blank out `N/A`, strip currency and thousands separators, normalise dates *when the column proves its own format*. **Medium** adds judgement calls: folding `north`/`North ` to one spelling, turning repeated `-999` placeholders into nulls. A rule applies to a whole column or not at all — half-applying one leaves the column in a state that is neither the original nor the repair.
+![HTML report preview](https://raw.githubusercontent.com/N0tDeb/sift/main/docs/html-report-preview.png)
 
-Three design decisions worth the words:
+## Commands
 
-- **Numbers are edited as text, never round-tripped through `float()`.** Reformatting would change how many decimals the file had. The parse is used only to confirm the edit didn't change the value.
-- **`--log` records every changed cell and deleted duplicate row** with source-line provenance and the responsible rule. The log includes a SHA-256 fingerprint of the input for verification against the retained original. Privacy redaction and CSV normalization mean it is **not** a standalone, byte-for-byte reversible patch. A cleaned file you cannot verify against the original is just a different unverified file.
-- **`fix` refuses unsafe rewrites by default.** Ragged rows get padded or truncated on read, so rewriting could destroy data. Formula-like CSV values (`=`, `+`, `-`, or `@`, excluding ordinary signed numbers) are detected even in mostly numeric columns, including after leading whitespace/newlines. Affected columns remain unchanged and normal writes are refused; `--force` can accept *existing* CSV risks but cannot create a new formula risk. Excel `.xlsx`/`.xlsm` formula cells in the selected sheet block `fix` even with `--force`, because exporting their cached values can silently lose formulas or blank cells. `--dry-run` explains refusals without writing. Other Excel sheets are not exported or checked by `fix`; use `check --all-sheets` for read-only inspection of every sheet.
+| Command | Purpose |
+| --- | --- |
+| `sift-lint check FILE...` | Check one file, multiple files or a directory for data-quality issues. |
+| `sift-lint profile FILE` | Inspect inferred types, missingness, cardinality and ranges. |
+| `sift-lint diff BASELINE CURRENT` | Compare schema, missingness, categories and distributions against a reference file. |
+| `sift-lint fix FILE --output clean.csv` | Produce a repaired CSV copy and report what could not safely be changed. |
+| `sift-lint impact FILE --sum amount --group-by region` | Estimate how defects change aggregates and groupings. |
+| `sift-lint init FILE` | Generate a reviewable `sift.toml` from a trusted file. |
+| `sift-lint baseline save NAME FILE` | Store a local, integrity-checked source snapshot for later comparisons. |
 
-Running `fix` twice changes nothing the second time. Also a test.
+For help with any command, run `sift-lint COMMAND --help`. Useful checking options include `--key`, `--ignore`, `--min-confidence`, `--fail-on` and `--format text|json|html`; GitHub Actions workflows can also use `--format github` for escaped error, warning and notice annotations.
 
-## Blast radius
-
-A finding is a claim about a file. `sift-lint impact` answers the question the reader actually has: *how wrong is my number?*
-
-```
-$ sift-lint impact orders.csv --sum order_total --group-by region
-orders.csv  40 rows
-
-SUM(order_total)
-  as it loads         not a number — the column reads as text, so a loader drops
-                      every value it cannot parse: 2 of 40 rows survive.
-  coerced                    -1,998   what errors='coerce' would give you
-  after sift-lint fix       1,078,019.98   from 38 of 40 rows
-  difference           1,080,017.98 (+100.2%)
-
-      38 rows  formatted numbers recovered that a loader drops  +1,078,019.98
-       2 rows  placeholder values removed that a loader counts as real  +1,998.00
-
-GROUP BY region, SUM(order_total)
-  7 groups today, 4 after repair.
-  1,019,307.31 sits under a label that is a spelling of another (94.6% of the total):
-    'NORTH ', 'north' belongs to 'North'  1,019,307.31
-
-DUPLICATE ROWS
-  1 row repeated exactly, inflating SUM(order_total) by 2,171.02.
-```
-
-The headline number there is real and worth staring at: a `SUM` over this file returns **-1,998** — the only two values `float()` can read are the `-999` placeholders. Everything else is `$1,065.11` and gets dropped. No exception is raised. The dashboard just shows a negative total.
-
-Nothing in this command is a heuristic. It computes the same aggregate three ways over the same file — as a typed loader reads it, with unparseable values coerced away, and over the repaired copy — and the causes it lists are a decomposition of the difference, not a gesture at it. They add up exactly, and a test enforces that they do.
-
-Additional numerical comparisons can be requested individually or together:
+### Check files and references
 
 ```bash
-sift-lint impact orders.csv --avg order_total --min order_total --max order_total
+sift-lint check examples/orders_messy.csv --key order_id
+sift-lint check data/ --format json --output report.json
+sift-lint check orders.csv --references customers.csv:customer_id=id
 ```
 
-`--mean` is an alias for `--avg`. These computations use only numeric rows under
-strict coercion versus numeric rows after the same medium-confidence repair plan
-used for `--sum`; they show each denominator explicitly. If no numbers survive,
-Sift prints `n/a`, never a fabricated zero. Ambiguous numeric conventions remain
-a hard error. Unlike SUM, AVG/MIN/MAX differences are **not additive** and do
-not carry the SUM cause decomposition. `--group-by` remains a distinct
-label-normalization analysis; `--sum` continues to supply its measure weights.
-For GROUP BY, percentages now use **absolute amount at risk** so a positive and
-negative transaction cannot cancel each other out; the net amount may be zero.
+The last command verifies that nonempty `orders.customer_id` values exist in `customers.id`. In general, use `--references FILE:LOCAL=FOREIGN` for explicit cross-file checks. A multi-file check keeps the available results even when one source cannot be read; unreadable files cause exit code 2.
 
-## The dot and the comma
+### Inspect every Excel sheet
 
-Half the world writes `1,234.56` and half writes `1.234,56`. Read a German file with English convention and `12.500,00` — twelve and a half thousand — becomes `12.5`. **A thousandfold error, no exception raised.** It is the most expensive mistake in this tool's remit and the easiest to miss, because nothing about the output looks wrong.
+By default, Sift checks the first worksheet, or the one selected using `--sheet NAME`. To inspect all sheets, including hidden sheets:
 
-Sift reads every number under both conventions and lets the column decide, the same way it settles date order:
-
-```
-warning european-numbers  betrag
-        'betrag' uses a comma for the decimal point and a dot for thousands.
-        Any reader assuming English convention will misread these by a factor
-        of a thousand, without erroring.
+```bash
+sift-lint check workbook.xlsx --all-sheets
+sift-lint profile workbook.xlsx --all-sheets
+sift-lint check workbook.xlsx --all-sheets --format json --output report.json
 ```
 
-The evidence comes in two strengths, and the distinction matters. `1.234,56` can *only* be read the European way — one such value settles the whole column. `1,200` is weaker: it could mean grouped thousands in English or `1.2` in European, and neither is impossible. **Grouping-shaped values alone are not decisive evidence**: Sift reports ambiguity, refuses automatic numeric normalization, and withholds untrustworthy numeric summaries and `impact` totals. A column with decisive evidence in both directions is reported as conflicting rather than resolved.
+Each sheet receives separate findings. Empty or unreadable sheets are reported explicitly. Workbook-wide analysis is read-only; `fix`, `diff`, `init` and `impact` still use one selected worksheet at a time. Formula-containing Excel sheets are not exported by `fix`, since a CSV export could discard the formulas. Excel support requires the `excel` or `all` extra.
 
-`sift-lint fix` normalises European numbers to `1234.56` when the convention is settled, and refuses when it is not:
+### Preview repairs before writing
 
-```
-  v [plain-number]
-    2 values like "1.234" mean one thing under English convention and a
-    thousand times more under European convention, and nothing else in the
-    column settles which was meant.
-```
-
-## Confidence, not booleans
-
-"Ambiguous or not" is the wrong output for a date column. A column where 30 rows can only be day-first and 10 could go either way isn't ambiguous — it's day-first, and the 10 will follow. A column with one day-first row and one month-first row isn't ambiguous either; it's corrupt, and no single reading saves it. Only a column with no decisive rows at all is genuinely undecidable.
-
-Sift reports those as three different findings with three different remedies, and `infer_date_order` returns the evidence behind the call:
-
-```python
->>> reading = infer_date_order(profile)
->>> reading.order, reading.label, round(reading.confidence, 2)
-('dmy', 'certain', 0.57)
->>> reading.reason
-'12 of 21 dates can only be read as day-first; the remaining 9 are valid both
- ways and would follow that reading.'
+```bash
+sift-lint fix examples/orders_messy.csv --dry-run --format json
+sift-lint fix examples/orders_messy.csv --dry-run --explain
+sift-lint fix examples/orders_messy.csv --output clean.csv --log changes.csv
 ```
 
-## GitHub Actions annotations
+Repairs are conservative: ambiguous dates or numeric conventions, unsafe CSV formula-like values, and formula-bearing Excel sheets can block edits. The JSON preview lists proposed changes, rules, row references and refusals without raw cell values by default. `--show-values` is an explicit opt-in for non-sensitive fields and should be used only on trusted data. Real repairs write a separate output, and `--log` is optional. For repair rules and safety constraints, see the [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md).
 
-For an opt-in GitHub-friendly report, use `check --format github`. Findings
-appear as `::error`, `::warning` or `::notice` workflow commands, with their
-finding codes and original file paths. This mode works for single-file, folder
-and `--all-sheets` checks. It preserves the standard `--fail-on` exit policy:
+### Compare against named baselines
 
-```yaml
-- name: Validate incoming data
-  run: sift-lint check data/ --format github --fail-on warning
+```bash
+sift-lint baseline save daily-reference examples/orders_baseline.csv
+sift-lint baseline list
+sift-lint baseline verify daily-reference
+sift-lint diff daily-reference examples/orders_messy.csv --saved
 ```
 
-Annotations omit example values and omit line numbers unless Sift can establish
-a reliable location (currently none are supplied). Findings undergo the same
-sensitive-data redaction as other report formats. As with JSON/HTML reports,
-review source filenames and column names before publishing diagnostics to a
-public build log. Use `--output PATH` to save the raw commands without emitting
-them to the workflow UI. This format is available for `check` only, not `diff`.
+Named baselines are optional; ordinary `diff BASELINE CURRENT` is unchanged. **Saved baselines contain full, unencrypted copies of the original source**, potentially including sensitive values. They are stored under `.sift/baselines/` by default, ignored by Git and protected by a SHA-256 integrity check, but the hash does not provide encryption or authenticity. Restrict access and never commit or share baseline snapshots. See the [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md) for storage overrides and deletion instructions.
 
-## In CI
+### Quantify impact
 
-Exit codes are the contract:
-
-| code | meaning |
-|---|---|
-| 0 | nothing at or above the failure threshold |
-| 1 | findings at or above it |
-| 2 | the file could not be read at all |
-
-A broken pipeline should never look like a clean file, which is why those last two are different numbers.
-
-```yaml
-- name: Check the daily export
-  run: |
-    sift-lint check data/orders.csv --key order_id
-    sift-lint diff data/orders.baseline.csv data/orders.csv --fail-on warning
+```bash
+sift-lint impact examples/orders_messy.csv --sum order_total --group-by region
+sift-lint impact examples/orders_messy.csv --avg order_total --min order_total --max order_total
 ```
 
-Committing a baseline file next to the data turns `diff` into a regression test for the shape of your data, not just its contents.
+Impact compares strict numeric coercion with the supported repair plan, making missing numeric observations visible. Aggregate differences are estimates conditioned on the input's evidence; Sift refuses to calculate them when numeric conventions cannot be resolved. `--mean` is an alias for `--avg`.
 
-## Checks
+## Findings and limits
 
-**Structure** — ragged rows (unescaped delimiters, unclosed quotes), duplicate and unnamed column names, names differing only by case, BOM, mixed line endings, missing trailing newline.
+The controlled benchmark detects **28 of 28 planted corruptions**, with **zero findings in its clean control**. It is not a general estimate of recall or an assurance that every real-world defect will be detected. The [benchmark](https://github.com/N0tDeb/sift/blob/main/BENCHMARK.md), [public-dataset evaluation](https://github.com/N0tDeb/sift/blob/main/REAL-DATA.md) and [bounded performance observations](https://github.com/N0tDeb/sift/blob/main/docs/PERFORMANCE.md) describe the evidence and limitations.
 
-**Numbers** — European decimal conventions (`1.234,56`), columns mixing both conventions, and values no evidence can settle.
+Sift reads and profiles data in memory, so memory use can substantially exceed file size. Sensitive-field detection is heuristic; review files and reports before sharing them. Multi-output operations are not a single filesystem transaction. Running Sift is not a substitute for domain-specific validation or a trusted source of truth. See [SECURITY.md](https://github.com/N0tDeb/sift/blob/main/SECURITY.md) for security considerations.
 
-**Types** — mixed types in one column, 8-digit values that are equally a date or a number, numbers written as text (`$`, `,`, `%`, accounting parentheses), leading zeros that a numeric read would destroy.
+## Version and documentation
 
-**Dates** — day-first/month-first ambiguity, graded by how much of the column proves its own format, mixed layouts within a column, future dates, dates before 1900, placeholder dates (`1970-01-01`, `9999-12-31`).
+The `main` source contains the **1.1.0** release candidate. Until the v1.1.0 GitHub Release and PyPI publication have succeeded, `uv tool install sift-lint` and `pip install sift-lint` install the latest **published** version instead. Version 1.1.0 adds workbook-wide checks, column rules, named baselines, richer repair previews, impact aggregates and CI annotations. Some malformed inputs and unsafe repairs are now rejected rather than accepted; see the [1.1.0 upgrade notes](https://github.com/N0tDeb/sift/blob/main/CHANGELOG.md) before upgrading an existing automation.
 
-**Missing data** — null rates against configurable thresholds, missing values written as text (`N/A`, `unknown`, `-`), numeric sentinels (`-999`) that will be averaged as real values, empty and constant columns.
+- [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md) — architecture, format handling, CLI options, repair behavior and limitations
+- [SETUP.md](https://github.com/N0tDeb/sift/blob/main/SETUP.md) — local development and CI
+- [CONTRIBUTING.md](https://github.com/N0tDeb/sift/blob/main/CONTRIBUTING.md) — contributing and testing
+- [SECURITY.md](https://github.com/N0tDeb/sift/blob/main/SECURITY.md) — security policy
+- [CHANGELOG.md](https://github.com/N0tDeb/sift/blob/main/CHANGELOG.md) — releases and compatibility notes
 
-**Repair audit format** — `fix --log audit.csv` keeps the six fields
-`line,column,rule,confidence,before,after`. It now includes a `source-sha256`
-entry (line 0), cell-change entries, and `drop-duplicate-row` entries with
-`column=[row]`. Cell records use unique keys for duplicate headers. A deletion's `before` field is JSON containing positional
-original values, the retained row's source line and whether duplication arose
-only after normalization. Potential spreadsheet-formula payloads in ordinary
-cells use the reversible `json:` encoding; values beginning with `json:` use
-the same encoding. Retain the **original input** for verification and recovery:
-redacted sensitive values cannot be restored from the audit alone. The log is
-not a byte-level reverse patch and does not reconstruct Excel formatting.
-Privacy detection is heuristic; inspect logs before distributing them.
-
-**Sensitive data** — columns holding email addresses, phone numbers, payment card numbers or IBANs, and columns *named* like sensitive fields. Once a column is classified as sensitive, other findings for that column also suppress source-value details, and repair audit logs redact its before/after values.
-
-**Safety** — formula-like CSV values, NUL bytes, malformed quoting, and files without a usable header. Header-only files can be inspected but cannot serve as drift baselines.
-
-**Values** — case and whitespace variants of the same label, near-duplicate labels (`Acme Corp` / `Acme Crop`, gated on frequency skew — a rare misspelling of a spelling most rows agree on — so evenly-used categories like `vvs1`/`vvs2` or `male`/`female` are left alone, and identifier-shaped columns are excluded entirely), stray and non-breaking whitespace, mojibake from a bad encoding round-trip, outliers by modified z-score, negative values in columns named like quantities.
-
-**Keys** — declared keys must be unique and complete; unique complete ID columns are suggested as candidates.
-
-**Drift** (`sift-lint diff`) — removed, added and reordered columns, type changes, null-rate jumps, median shifts, new and vanished categories, large row-count changes.
-
-## Configuration
-
-Checks are silenced by code — see [CODES.md](https://github.com/N0tDeb/sift/blob/main/CODES.md) for the full list. Sift reads the nearest `sift.toml`, walking up from the file being checked.
-
-```toml
-[sift]
-null_warn = 0.10
-null_error = 0.50
-key = ["order_id"]
-fail_on = "error"
-ignore = ["outliers"]
-
-[sift.ignore_columns]
-whitespace = ["notes"]
-high-cardinality = ["email"]
-```
-
-### Column roles and explicit validation (opt-in)
-
-Add named column policies to `sift.toml` to supplement heuristics. These rules are
-**read-only validation**; they do not rewrite data. Existing configurations keep
-working without changes. All violations appear as finding codes in `CODES.md`.
-
-```toml
-[sift.columns."postal_code"]
-role = "identifier"  # protect exact bytes from automatic repair and avoid numeric drift
-required = true
-
-[sift.columns."amount"]
-role = "measure"     # even if the name looks like an ID
-required = true
-min_value = 0
-max_value = 100000
-
-[sift.columns."status"]
-role = "category"
-allowed_values = ["open", "closed", "pending"]  # exact, case-sensitive
-
-[sift.columns."access_code"]
-role = "sensitive"   # protect diagnostics, profile and repair even without name heuristics
-```
-
-Supported roles: `identifier`, `measure`, `category`, `date`, `text`,
-`sensitive`. Roles `identifier` and `sensitive` prevent automated cell rewriting.
-Non-measure roles suppress numerical outlier and median-shift checks. A
-`measure` role can opt into those checks despite identifier-like naming.
-`required` rejects absent, blank and disguised-null values. `allowed_values`
-compares exact text; bounds use the column's safely inferred number convention.
-Ambiguous numeric formats fail validation rather than being silently guessed.
-Unknown fields and invalid policy combinations fail config loading.
-
-Policy names refer to column headers. Avoid ambiguous or duplicate headers
-before using per-column rules. Use `--config` to select a configuration;
-`--no-config` returns to heuristics without the new policies.
-
-Per-column silencing exists because that is what people actually need. A `notes` column is *supposed* to be free text; silencing `high-cardinality` everywhere to quiet it would hide the same signal in a column where it means an ID leaked into a category field.
-
-## As a library
-
-```python
-from sift_lint import lint, diff
-
-for finding in lint("orders.csv"):
-    print(finding.severity.value, finding.code, finding.column, finding.message)
-
-changes = diff("baseline.csv", "today.csv")
-
-# The library uses the same CSV / Excel / Parquet source dispatch as the CLI.
-workbook_findings = lint("orders.xlsx", sheet="Orders")
-```
-
-`lint()` and `diff()` accept the source options `delimiter`, `sheet` and positive `max_rows`;
-optional Excel/Parquet dependencies are still required for those formats.
-
-## Design notes
-
-**No dependencies.** Sift reads every value as text on purpose. A typed loader has already made its guesses by the time you can inspect the data, and those guesses are exactly what Sift is checking. Reading the raw strings is also what keeps it stdlib-only, which means it installs in a CI container in a second and never conflicts with the pandas version the project already pins.
-
-**Median and MAD, not mean and standard deviation.** One bad row should not move the yardstick used to find bad rows. A single `999999` inflates a standard deviation enough to hide itself. Statistics are skipped entirely on columns that failed the type check, and the outlier report goes quiet when more than 5% of a column would be flagged — at that point the column is skewed, not dirty.
-
-**Every threshold is configurable and every check is silenceable.** A 20% null rate is alarming in a payments table and expected in a survey export. A linter that can't be tuned gets muted, and a muted linter catches nothing.
-
-**Findings are worded as consequences.** Not "column contains mixed types" but "a typed loader will fall back to text for the whole column, or drop these rows." The reader has to decide whether to care, and they can only do that if they know what happens next.
-
-## Limitations
-
-Performance is workload-dependent: a historical 18 MB, 126,000-row dataset
-needed about 29 seconds and 340 MB on its test machine after parser profiling.
-Those measurements are not a performance guarantee or a validated file-size
-limit. Values and profiles remain in memory, and memory usage may be many times
-larger than the input file. See the [bounded performance observations](docs/FINAL_REVIEW.md)
-and measure representative data before deploying large jobs.
-
-Heuristics, not proofs. Sift can tell you a date column is undecidable; it cannot tell you which reading is right when the file contains no evidence either way — that lives in a system it can't see, which is exactly why `fix` refuses the case rather than guessing. Raw CSV byte diagnostics are streamed and `--max-rows` stops row ingestion early, but the retained rows and their profiles are still held in memory; Sift has no validated maximum input size yet, and warehouse-scale data has not been tested. Column-name heuristics (`quantity` implies non-negative) are English-only, and number parsing covers the comma and dot conventions but not space-grouped forms like `1 234,56`. Excel checks the first sheet by default; `check --all-sheets` explicitly inspects all worksheets, and the old binary `.xls` format is not supported at all. Cross-file reference checks are explicit command-line relationships rather than an inferred schema; each relationship must be declared with `--references`.
-
-## Measuring accuracy
-
-Three rounds of testing against real files fixed false positives, because those are the ones you can see in the output. Nothing in that process could reveal a *false negative* — a problem sitting in a file that Sift walked straight past. You cannot eyeball a miss.
-
-`bench/` generates a clean file, verifies Sift is silent on it, then corrupts it one known way at a time. Each corruption declares the finding code that should catch it.
-
-```
-$ python -m bench.run
-
-Recall: 28/28 (100%) of known corruptions detected.
-Noise:  0 findings on the clean control file.
-```
-
-Both halves matter. Recall is the share of planted problems found; noise is findings raised against a file with nothing wrong, where the only acceptable answer is zero. It runs in CI, so a change that starts missing problems — or starts inventing them — fails the build rather than being discovered months later.
-
-Writing it immediately paid for itself. It found a real gap: a column holding two *incompatible* date formats (some rows only day-first, others only month-first) is the one date problem that cannot be repaired at all, and `sift-lint fix` was correctly refusing to touch it — while `sift-lint check` reported it as a mild "mixed layouts" warning. The checker and the fixer disagreed about how bad it was. `check` now uses the same graded inference the repair engine does, and reports `conflicting-date-formats` as an error.
-
-Wiring that up also removed a false positive nobody had noticed: the old check flagged a column as ambiguous whenever *any* row could be read two ways, even when another row in the same column settled the question. `04/03/2024` alongside `25/12/2024` is not ambiguous — the second row proves day-first, and the first follows.
-
-## Tests
-
-```
-pip install -e ".[dev]"
-pytest -q
-```
-
-The suite includes regression tests for clean-data silence, complete repair audit logging, repair idempotency, and impact accounting. Every check is easy to fire on broken data; the hard part is not firing on data that's fine, because a linter with false positives gets switched off. And a fixer you can't audit or re-run safely is worse than no fixer.
-
-## Contributing
-
-Issues and pull requests are welcome. See [CONTRIBUTING.md](https://github.com/N0tDeb/sift/blob/main/CONTRIBUTING.md) for the
-development workflow and expectations for new checks. Documentation consistency,
-clean-data behavior and benchmark regressions are checked in CI.
-
-Security issues should be reported privately; see [SECURITY.md](https://github.com/N0tDeb/sift/blob/main/SECURITY.md).
-Changes are tracked in [CHANGELOG.md](https://github.com/N0tDeb/sift/blob/main/CHANGELOG.md).
-
-## License
-
-MIT — see [LICENSE](https://github.com/N0tDeb/sift/blob/main/LICENSE).
+Sift is released under the [MIT License](https://github.com/N0tDeb/sift/blob/main/LICENSE).

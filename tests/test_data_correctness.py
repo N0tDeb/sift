@@ -1,4 +1,4 @@
-"""Batch 2 regressions: reject invalid input and unproven numeric conversions."""
+"""Reject invalid input and unproven numeric conversions."""
 
 from __future__ import annotations
 

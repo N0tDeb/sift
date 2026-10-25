@@ -1,4 +1,4 @@
-"""Batch 1: spreadsheet formula checks and repair/output safety.
+"""Spreadsheet formula checks and repair/output safety.
 
 Inputs are synthetic and never evaluate formulas. No Excel application is used.
 """

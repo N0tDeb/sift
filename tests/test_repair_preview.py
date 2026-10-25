@@ -1,4 +1,4 @@
-"""Batch 8: structured, privacy-first preview and rule explanations."""
+"""Structured, privacy-first preview and rule explanations."""
 
 from __future__ import annotations
 

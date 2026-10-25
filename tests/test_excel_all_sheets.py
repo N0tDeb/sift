@@ -1,4 +1,4 @@
-"""Batch 11: workbook-wide inspection without missing or rewriting worksheets."""
+"""Workbook-wide inspection without missing or rewriting worksheets."""
 
 from __future__ import annotations
 

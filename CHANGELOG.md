@@ -34,9 +34,9 @@ Some safety and correctness changes are intentionally **not behavior-identical**
 - Excel and Parquet remain optional dependencies. The Parquet extra requires
   `pyarrow>=14.0.1`; supported Python versions remain 3.11 and newer.
 
-### Detailed changes
+### Improvements and fixes
 
-- Batch 12 opt-in GitHub Actions annotations for `check --format github`:
+- GitHub Actions annotations for `check --format github`:
   emit error/warning/notice workflow commands on single-file, multi-file and
   multi-sheet inspections; escape command metacharacters, omit sensitive
   examples and unverified line numbers, and preserve existing exit codes.
@@ -44,40 +44,40 @@ Some safety and correctness changes are intentionally **not behavior-identical**
   example data as PR annotations. Check installed test dependencies with
   `pip check` across the CI matrix and add a maintainer release checklist.
 
-- Batch 11 optional Excel workbook-wide inspection: `check --all-sheets` and
+- Excel workbook-wide inspection: `check --all-sheets` and
   `profile --all-sheets` inspect every worksheet, including hidden sheets.
   Report each sheet separately in text, JSON and HTML; propagate unprocessable
   sheets as exit code 2 without discarding results from readable sheets.
   Preserve single-sheet defaults and read-only formula safety. Requires OpenPyXL.
 
-- Batch 10 impact extensions: compare AVG, MIN and MAX before and after
+- Additional impact aggregates: compare AVG, MIN and MAX before and after
   medium-confidence repair, show numeric-row counts and distinguish unavailable
   aggregates from zero; keep existing SUM/GROUP BY flags and default behavior.
   GROUP BY measured exposure now uses absolute weights so credits and debits
   cannot cancel in its estimated percentage; signed API totals remain available.
 
-- Batch 9 named local baselines: save, list, inspect, verify and deliberately
+- Named local baselines: save, list, inspect, verify and deliberately
   delete original-file snapshots; use `diff BASELINE CURRENT --saved` for
   repeatable comparisons with SHA-256 integrity verification. Retain explicit
   delimiter/worksheet choices, forbid overwrite and path-traversal names,
   and ignore raw snapshot copies in Git by default. Raw snapshots may contain
   sensitive information and are not encrypted.
 
-- Batch 8 repair transparency: `fix --dry-run --format json` emits a structured,
+- Repair previews and explanations: `fix --dry-run --format json` emits a structured,
   versioned plan with per-change rule explanations, refusal details, deleted-row
   provenance and content-safety blockers. Values are hidden by default;
   `--show-values` opts into displaying non-sensitive before/after values.
   `fix --explain` adds data-free rule descriptions to text plans without
   altering repairs. Normal text output and repair defaults remain unchanged.
 
-- Batch 7 configurable column policies: opt-in semantic roles
+- Configurable column policies: opt-in semantic roles
   (`identifier`, `measure`, `category`, `date`, `text`, `sensitive`) and strict
   read-only validation for required columns/values, exact allowed values,
   and numerical bounds. Guard sensitive and identifier values during repairs;
   apply configured privacy to reports and Python APIs, and suppress
   meaningless numeric statistics on non-measures. Document new finding codes.
 
-- Batch 6 privacy/correctness: redact comparisons using both datasets and
+- Sensitive-data and parsing safeguards: redact comparisons using both datasets and
   reference checks using both files' sensitivity, including common secret
   field names; preserve opaque
   sensitive values during automatic repair; stop duplicate sensitive-column
@@ -87,32 +87,32 @@ Some safety and correctness changes are intentionally **not behavior-identical**
   recognized postal codes and identifier columns. Update security and
   architecture documentation.
 
-- Batch 5 schema hardening: reserve real header names when generating keys
+- Duplicate-column and schema handling: reserve real header names when generating keys
   for repeated columns (including names like `v#1`); apply the same naming
   policy across CSV, Excel and Parquet. Detect added/removed duplicate-header
   occurrences during drift comparisons, and compare corresponding occurrences
   instead of repeatedly comparing the first one. Document bounded runtime/memory
   measurements and release validation limits without claiming a size guarantee.
 
-- Batch 4 reliability: resolve `impact` selectors using duplicate-column keys,
+- Output and selector reliability: resolve `impact` selectors using duplicate-column keys,
   reject non-finite TOML thresholds, preserve existing output file permissions,
   and preflight repaired-CSV and audit-log paths before starting either write.
   Invalid delimiter overrides exit cleanly. Multi-file writes remain separate
   atomic replacements rather than a single transaction.
 
-- Batch 3 audit/privacy: record duplicate-row removals with source-row
+- Repair audit logging and redaction: record duplicate-row removals with source-row
   provenance and a source-file hash; keep the original six-column audit header.
   Redact sensitive values from repair refusal summaries, numeric profiles,
   sensitive group labels in impact reports, and unscoped duplicate examples.
   Escape formula-like values in audit logs without silently discarding them.
 
-- Batch 2 data correctness: reject malformed CSV quoting and files without a
+- Input validation and numeric correctness: reject malformed CSV quoting and files without a
   usable header, including in `fix --force`; require populated drift baselines.
   Treat grouping-shaped numeric values as ambiguous unless the column contains
   decisive locale evidence, preventing speculative repairs, misleading numeric
   statistics and `impact` sums.
 
-- Batch 1 formula safeguards: recognize risky formula-like cells regardless of
+- Spreadsheet and CSV formula safeguards: recognize risky formula-like cells regardless of
   inferred column type, including newline and non-breaking-space prefixes;
   preserve ordinary signed numbers. Refuse newly introduced formula-like CSV
   output and prohibit Excel formula-to-CSV repair even under `--force`.
@@ -132,10 +132,6 @@ Some safety and correctness changes are intentionally **not behavior-identical**
   for CSV repairs containing multiline quoted fields.
 - Use absolute GitHub links in the package README so documentation and images
   resolve correctly on PyPI, and clarify that `--log` is optional.
-
-Publication of a new PyPI distribution requires a reviewed `v1.1.0`
-source tag and a separately approved GitHub Release; preparing this version
-in source does not publish it.
 
 ## 1.0.0
 

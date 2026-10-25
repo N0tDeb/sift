@@ -1,4 +1,4 @@
-"""Batch 3: trace every deletion without turning diagnostics into data leaks."""
+"""Trace every deletion without exposing private values in diagnostics."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Batch 4 regressions: robust selectors, configuration, and output safety."""
+"""Regressions for selectors, configuration, and output safety."""
 
 from __future__ import annotations
 

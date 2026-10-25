@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import runpy
 from pathlib import Path
 
@@ -75,7 +76,7 @@ def test_documented_repository_tree_stays_current() -> None:
     regression_count = len(list((ROOT / "tests").glob("test_*.py")))
     assert f"...{count} Python modules..." in guide
     assert f"test_*.py ({regression_count} regression modules)" in guide
-    for name in ("FINAL_REVIEW.md", "RELEASE_CHECKLIST.md", "html-report-preview.png",
+    for name in ("PERFORMANCE.md", "RELEASE_CHECKLIST.md", "html-report-preview.png",
                  "vhs-demo.yml"):
         assert name in guide
 
@@ -91,3 +92,27 @@ def test_release_version_matches_public_guide_and_changelog() -> None:
     assert '["version"]' in project
     assert 'path = "sift_lint/__init__.py"' in project
     _check_tag()(f"v{__version__}", __version__)
+
+
+def test_documentation_relative_links_resolve() -> None:
+    """Keep repository documentation links valid when files are reorganized."""
+    pattern = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+    failures = []
+    for doc in ROOT.rglob("*.md"):
+        # Generated build directories are not part of the repository docs.
+        if any(part in {"dist", "build", ".venv"} for part in doc.parts):
+            continue
+        in_fence = False
+        for line in doc.read_text(encoding="utf-8").splitlines():
+            if line.lstrip().startswith(("```", "~~~")):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            for match in pattern.finditer(line):
+                link = match.group(1).split("#", 1)[0].strip("<>")
+                if not link or ":" in link or link.startswith("#"):
+                    continue
+                if not (doc.parent / link).resolve().exists():
+                    failures.append(f"{doc.relative_to(ROOT)}: {link}")
+    assert not failures, "Broken relative links: " + ", ".join(failures)
