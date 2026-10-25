@@ -400,9 +400,14 @@ optional Excel/Parquet dependencies are still required for those formats.
 
 ## Limitations
 
-Performance is adequate, not exceptional: roughly 29 seconds and 340 MB of memory for an 18 MB, 126,000-row file on one core, down from four minutes before the parsers were profiled. Holding every value as a Python string costs roughly 20x the file size in memory, which is the price of reading everything as text. Files in the tens of megabytes are comfortable; gigabytes are not what this is for.
+Performance is workload-dependent: a historical 18 MB, 126,000-row dataset
+needed about 29 seconds and 340 MB on its test machine after parser profiling.
+Those measurements are not a performance guarantee or a validated file-size
+limit. Values and profiles remain in memory, and memory usage may be many times
+larger than the input file. See the [bounded performance observations](docs/FINAL_REVIEW.md)
+and measure representative data before deploying large jobs.
 
-Heuristics, not proofs. Sift can tell you a date column is undecidable; it cannot tell you which reading is right when the file contains no evidence either way — that lives in a system it can't see, which is exactly why `fix` refuses the case rather than guessing. Raw CSV byte diagnostics are streamed and `--max-rows` stops row ingestion early, but the retained rows and their profiles are still held in memory; Sift is therefore built for the megabyte-to-hundreds-of-megabytes range these files actually live in, not for warehouse-scale data. Column-name heuristics (`quantity` implies non-negative) are English-only, and number parsing covers the comma and dot conventions but not space-grouped forms like `1 234,56`. Excel support reads one sheet at a time and names the others rather than checking them, and the old binary `.xls` format is not supported at all. Cross-file reference checks are explicit command-line relationships rather than an inferred schema; each relationship must be declared with `--references`.
+Heuristics, not proofs. Sift can tell you a date column is undecidable; it cannot tell you which reading is right when the file contains no evidence either way — that lives in a system it can't see, which is exactly why `fix` refuses the case rather than guessing. Raw CSV byte diagnostics are streamed and `--max-rows` stops row ingestion early, but the retained rows and their profiles are still held in memory; Sift has no validated maximum input size yet, and warehouse-scale data has not been tested. Column-name heuristics (`quantity` implies non-negative) are English-only, and number parsing covers the comma and dot conventions but not space-grouped forms like `1 234,56`. Excel support reads one sheet at a time and names the others rather than checking them, and the old binary `.xls` format is not supported at all. Cross-file reference checks are explicit command-line relationships rather than an inferred schema; each relationship must be declared with `--references`.
 
 ## Measuring accuracy
 

@@ -32,7 +32,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from .findings import Finding, Severity
-from .loading import Column, LoadError, Table, validate_max_rows
+from .loading import Column, LoadError, Table, column_keys, validate_max_rows
 from .loading import load as load_csv
 from .profiling import profile_column
 from .text import plural
@@ -83,15 +83,8 @@ def _text(value: object) -> str:
 
 
 def _build(path: Path, header: list[str], rows: list[list[str]], findings: list[Finding]) -> Table:
-    seen: dict[str, int] = {}
     columns: list[Column] = []
-    for index, name in enumerate(header):
-        key = name
-        if name in seen:
-            seen[name] += 1
-            key = f"{name}#{seen[name]}"
-        else:
-            seen[name] = 0
+    for index, (name, key) in enumerate(zip(header, column_keys(header), strict=True)):
         values = [row[index] for row in rows]
         columns.append(
             Column(
@@ -315,7 +308,9 @@ def load_parquet(path: Path, max_rows: int | None = None) -> Table:
     # column whose every value is a number is a schema that stopped matching
     # its data — the exact thing a typed format is supposed to prevent.
     for index, name in enumerate(header):
-        declared = str(schema.field(name).type)
+        # Field names are not unique in every valid Parquet schema. Resolve by
+        # position to match the column extracted with data.column(index).
+        declared = str(schema.field(index).type)
         profile = built.columns[index].profile
         if declared.startswith("string") and profile.kind == "numeric" and profile.n_present:
             findings.append(

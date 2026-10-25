@@ -57,6 +57,32 @@ class LoadError(Exception):
     """The file cannot be read at all — not a finding, a failure."""
 
 
+def column_keys(header: list[str]) -> list[str]:
+    """Assign distinct keys without shadowing real header names.
+
+    A synthetic key such as ``v#1`` must not steal access to a literal
+    ``v#1`` column elsewhere in the file. Reserve every input name before
+    suffixing duplicates, including names appearing later in the header.
+    """
+    reserved = set(header)
+    used: set[str] = set()
+    suffixes: dict[str, int] = {}
+    keys: list[str] = []
+    for name in header:
+        if name not in used:
+            key = name
+        else:
+            suffix = suffixes.get(name, 1)
+            key = f"{name}#{suffix}"
+            while key in reserved or key in used:
+                suffix += 1
+                key = f"{name}#{suffix}"
+            suffixes[name] = suffix + 1
+        used.add(key)
+        keys.append(key)
+    return keys
+
+
 def _sniff_delimiter(sample: str, override: str | None) -> str:
     if override is not None:
         if len(override) != 1 or override in "\r\n\0\"":
@@ -300,15 +326,8 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
             )
         )
 
-    seen: dict[str, int] = {}
     columns: list[Column] = []
-    for index, name in enumerate(header):
-        key = name
-        if name in seen:
-            seen[name] += 1
-            key = f"{name}#{seen[name]}"
-        else:
-            seen[name] = 0
+    for index, (name, key) in enumerate(zip(header, column_keys(header), strict=True)):
         values = [row[index] for row in rows]
         columns.append(
             Column(

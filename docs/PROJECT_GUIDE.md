@@ -8,7 +8,7 @@ Sift is a Python linter for tabular data files. Its focus is not whether a file 
 
 This guide documents the architecture, command-line behavior, source modules, design decisions, safety properties, testing strategy, performance choices, extension points, and operational expectations of the definitive project state.
 
-**Repository navigation:** [README](../README.md) · [finding codes](../CODES.md) · [benchmark](../BENCHMARK.md) · [real-data notes](../REAL-DATA.md) · [setup](../SETUP.md) · [changelog](../CHANGELOG.md) · [contributing](../CONTRIBUTING.md) · [security](../SECURITY.md) · [tests](../tests/test_sift.py) · [CI workflow](../.github/workflows/ci.yml)
+**Repository navigation:** [README](../README.md) · [finding codes](../CODES.md) · [benchmark](../BENCHMARK.md) · [final review & performance](FINAL_REVIEW.md) · [real-data notes](../REAL-DATA.md) · [setup](../SETUP.md) · [changelog](../CHANGELOG.md) · [contributing](../CONTRIBUTING.md) · [security](../SECURITY.md) · [tests](../tests/test_sift.py) · [CI workflow](../.github/workflows/ci.yml)
 
 ## Contents
 
@@ -239,7 +239,8 @@ Each `Column` records:
 
 - original zero-based index;
 - original name;
-- lookup key;
+- lookup key; duplicate names are suffixed without colliding with literal
+  names such as `v#1` elsewhere in the same source header;
 - retained string values;
 - a `ColumnProfile`.
 
@@ -647,8 +648,8 @@ The test suite verifies that applying the repair a second time makes no further 
 
 The documented drift codes cover:
 
-- removed columns;
-- added columns;
+- removed columns, including reduced counts of repeated header names;
+- added columns, including additional occurrences of repeated names;
 - reordered columns;
 - type changes;
 - null-rate increases;
@@ -812,7 +813,9 @@ Cross-file reference tables are cached within one CLI check command.
 
 ### Memory trade-off
 
-The design intentionally retains values as Python strings so it can reason about exactly what the source contained before typed coercion. That costs memory compared with compact typed arrays.
+The design intentionally retains values as Python strings so it can reason about exactly what the source contained before typed coercion. That costs memory compared with compact typed arrays. The small, bounded
+benchmark in [the final review](FINAL_REVIEW.md) is an observation from one
+Linux environment, not a safe input-size limit or production SLA.
 
 ---
 
@@ -1141,7 +1144,9 @@ The project's own documented limitations include:
 
 - it is intended for local tabular files, not warehouse-scale processing;
 - values/profiles are retained in memory even though raw-byte scanning is streamed;
-- files in the tens to hundreds of megabytes are the intended range; gigabyte-scale data is not the target;
+- there is no validated maximum file size yet; representative files must be
+  measured before setting production expectations; warehouse-scale data is
+  outside the current validation scope;
 - heuristics cannot recover meaning that the file itself does not contain;
 - column-name semantics are English-oriented;
 - number parsing covers dot/comma conventions but not every international grouping style;

@@ -5,6 +5,13 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 5 schema hardening: reserve real header names when generating keys
+  for repeated columns (including names like `v#1`); apply the same naming
+  policy across CSV, Excel and Parquet. Detect added/removed duplicate-header
+  occurrences during drift comparisons, and compare corresponding occurrences
+  instead of repeatedly comparing the first one. Document bounded runtime/memory
+  measurements and release validation limits without claiming a size guarantee.
+
 - Batch 4 reliability: resolve `impact` selectors using duplicate-column keys,
   reject non-finite TOML thresholds, preserve existing output file permissions,
   and preflight repaired-CSV and audit-log paths before starting either write.
