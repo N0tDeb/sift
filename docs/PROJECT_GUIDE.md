@@ -88,10 +88,10 @@ The definitive project state has the following properties:
 | Parquet extra | `pyarrow>=14.0.1` |
 | Build backend | Hatchling |
 | License | MIT |
-| Python source modules | 17 |
+| Python source modules | 18 |
 | Registered check functions | 20 |
 | Stable documented finding codes | 70 |
-| CLI subcommands | 6 |
+| CLI subcommands | 7 |
 | Verification | Run the latest GitHub Actions CI matrix |
 | Known-corruption benchmark | 28/28 detected |
 | Clean-control benchmark noise | 0 findings |
@@ -180,7 +180,7 @@ sift/
 │   ├── orders_messy.csv
 │   └── orders_with_refs.csv
 ├── sift_lint/
-│   └── ...17 Python modules...
+│   └── ...18 Python modules...
 ├── tests/
 │   └── test_sift.py
 ├── .gitattributes
@@ -497,7 +497,7 @@ CLI `--fail-on` overrides the config for that invocation.
 
 ## 11. Command-line interface
 
-Sift exposes six subcommands.
+Sift exposes seven top-level subcommands, including local named-baseline management.
 
 ### `sift-lint check`
 
@@ -1323,3 +1323,38 @@ Escaping untrusted control and bidirectional formatting characters before embedd
 ## Maintenance note
 
 This guide tracks the current Sift development state. Update it alongside public behavior or architecture changes. In particular, keep command options, finding-code counts, CI behavior, optional dependencies, benchmark claims and limitations synchronized with the source and tests.
+
+
+## Named local baselines (Batch 9)
+
+`sift-lint baseline save NAME FILE` saves the **exact original file bytes**,
+not inferred profiles, in `.sift/baselines/NAME/`. The manifest records UTC
+creation time, source filename (not its full path), row/column counts, format,
+optional delimiter and worksheet selection, byte length and SHA-256. It never
+stores data examples in the manifest. Snapshots are write-once per name; rerun
+with a different name rather than overwrite a baseline used by CI.
+
+`sift-lint baseline list`, `baseline show NAME`, and `baseline verify NAME`
+inspect metadata and validate the fingerprint. `baseline delete NAME --yes`
+removes that snapshot; omitting `--yes` is an error. Use
+`sift-lint diff NAME CURRENT --saved` to compare after verifying integrity.
+Ordinary path-based `diff BASELINE CURRENT` is unchanged. For alternative
+storage directories, use `--store DIRECTORY` on baseline subcommands and
+`--baseline-store DIRECTORY` with `diff --saved`. Always run these from the
+same working directory if using the default relative path.
+
+The saved data may contain **raw personal information or credentials**.
+`.sift/baselines/` is Git-ignored by default; Git ignoring is not encryption
+or a complete access-control mechanism. Do not publish snapshots. On POSIX
+systems, freshly created snapshot directories/files are restricted to the
+user where supported. Windows access policy depends on filesystem ACLs.
+SHA-256 detects changes to stored data unless an actor can rewrite both the
+manifest and the bytes. It does not establish authenticity or make an unsafe
+source trustworthy. Avoid saving files that are being written concurrently.
+
+Baseline save validates the stored file with Sift's current parser and requires
+at least one data row. Snapshot names are limited to letters, digits, hyphens
+and underscores and do not permit path separators or dots. Config thresholds
+are still read from the **current** file's config during comparison. These
+snapshots do not provide automatic historical trends, a remote registry,
+encryption, or transactional coordination with an external data pipeline.

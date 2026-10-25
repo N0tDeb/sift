@@ -5,6 +5,13 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 9 named local baselines: save, list, inspect, verify and deliberately
+  delete original-file snapshots; use `diff BASELINE CURRENT --saved` for
+  repeatable comparisons with SHA-256 integrity verification. Retain explicit
+  delimiter/worksheet choices, forbid overwrite and path-traversal names,
+  and ignore raw snapshot copies in Git by default. Raw snapshots may contain
+  sensitive information and are not encrypted.
+
 - Batch 8 repair transparency: `fix --dry-run --format json` emits a structured,
   versioned plan with per-change rule explanations, refusal details, deleted-row
   provenance and content-safety blockers. Values are hidden by default;

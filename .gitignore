@@ -23,3 +23,6 @@ examples/learned-sift.toml
 # Recording artefacts (the finished GIF is committed; working files are not)
 demo/clean.csv
 demo/*.cast
+
+# Named baselines contain complete original data, possibly including secrets.
+.sift/baselines/

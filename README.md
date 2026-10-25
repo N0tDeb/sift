@@ -40,6 +40,37 @@ Run against 22 public datasets, it found a price column that sums to zero, a men
 
 For architecture, design decisions, testing strategy, security, performance, extension guidance, and operational details, see the [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md).
 
+## Named baselines (local)
+
+Use `sift-lint baseline` to save and reuse a specific, unchanged input file in
+recurring drift checks. This is optional; ordinary `diff BASELINE CURRENT` still
+works exactly as before.
+
+```bash
+sift-lint baseline save daily-reference examples/orders_baseline.csv
+sift-lint baseline list
+sift-lint baseline show daily-reference
+sift-lint baseline verify daily-reference
+sift-lint diff daily-reference examples/orders_messy.csv --saved
+# Deletion is irreversible and requires explicit approval:
+sift-lint baseline delete daily-reference --yes
+```
+
+Each named baseline stores a **full copy of the original input** plus a SHA-256
+fingerprint. A saved baseline is never overwritten; use a new name to record
+another snapshot. Sift verifies the fingerprint before comparing and exits with
+code 2 if it changes. `--delimiter` and `--sheet` supplied during `baseline save`
+are retained for saved comparisons. Override the storage folder using
+`baseline ... --store DIRECTORY` and `diff --saved --baseline-store DIRECTORY`.
+
+By default snapshots live under `.sift/baselines/` relative to the current
+working directory and are Git-ignored. **These files may contain personal
+information, passwords or other raw sensitive values.** Keep the storage
+private; do not commit, upload or share it. No encryption or external cloud
+backup is provided, and the integrity hash is not a cryptographic signature.
+Save from a stable file, not one being written concurrently. Only supported,
+readable files with at least one data row may be saved.
+
 ## Why
 
 A CSV has no types. Types appear when something reads it, and the reader guesses. Most of the time the guess is fine. When it isn't, nothing breaks:

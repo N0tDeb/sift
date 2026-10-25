@@ -17,6 +17,13 @@ from collections import Counter
 from pathlib import Path
 
 from . import __version__
+from .baselines import (
+    BaselineError,
+    delete_baseline,
+    get_baseline,
+    list_baselines,
+    save_baseline,
+)
 from .checks import run_checks, sensitive_columns
 from .config import FAIL_ON_LEVELS, Config, ConfigError, find_config, load_config
 from .drift import compare
@@ -106,10 +113,43 @@ def build_parser() -> argparse.ArgumentParser:
     )
     common(check_cmd)
 
+
+    baseline_cmd = sub.add_parser(
+        "baseline", help="Manage local named baselines for repeatable comparisons."
+    )
+    baseline_actions = baseline_cmd.add_subparsers(dest="baseline_action", required=True)
+    save_cmd = baseline_actions.add_parser("save", help="Save an immutable named file snapshot.")
+    save_cmd.add_argument("name", help="Unique baseline name.")
+    save_cmd.add_argument("path", type=Path, help="Source data file to snapshot.")
+    save_cmd.add_argument("--delimiter", help="CSV delimiter to retain for future diff runs.")
+    save_cmd.add_argument("--sheet", help="Excel worksheet to retain for future diff runs.")
+    list_cmd = baseline_actions.add_parser("list", help="List saved baselines.")
+    show_cmd = baseline_actions.add_parser("show", help="Show a baseline's metadata.")
+    show_cmd.add_argument("name")
+    verify_cmd = baseline_actions.add_parser("verify", help="Verify a saved snapshot's SHA-256.")
+    verify_cmd.add_argument("name")
+    remove_cmd = baseline_actions.add_parser("delete", help="Delete a saved baseline.")
+    remove_cmd.add_argument("name")
+    remove_cmd.add_argument(
+        "--yes", action="store_true", help="Confirm deletion of the raw snapshot."
+    )
+    for cmd in (save_cmd, list_cmd, show_cmd, verify_cmd, remove_cmd):
+        cmd.add_argument(
+            "--store", type=Path, help="Baseline storage folder (default: .sift/baselines)."
+        )
+
     diff_cmd = sub.add_parser("diff", help="Compare a file against a known-good baseline.")
     diff_cmd.add_argument("baseline", type=Path)
     diff_cmd.add_argument("current", type=Path)
     diff_cmd.add_argument("--sheet")
+    diff_cmd.add_argument(
+        "--saved", action="store_true",
+        help="Interpret BASELINE as a saved name rather than a file path.",
+    )
+    diff_cmd.add_argument(
+        "--baseline-store", type=Path,
+        help="Storage folder for --saved (default: .sift/baselines).",
+    )
     common(diff_cmd)
 
     fix_cmd = sub.add_parser(
@@ -686,11 +726,29 @@ def _run_check(args: argparse.Namespace) -> int:
 
 
 def _run_diff(args: argparse.Namespace) -> int:
+    if args.baseline_store is not None and not args.saved:
+        raise BaselineError("--baseline-store requires --saved")
+    baseline_path = args.baseline
+    record = None
+    delimiter, sheet = args.delimiter, args.sheet
+    if args.saved:
+        record, baseline_path = get_baseline(str(args.baseline), store=args.baseline_store)
+        if delimiter is not None and record.delimiter is not None and delimiter != record.delimiter:
+            raise BaselineError("--delimiter conflicts with the saved baseline delimiter")
+        if sheet is not None and record.sheet is not None and sheet != record.sheet:
+            raise BaselineError("--sheet conflicts with the saved baseline worksheet")
+        delimiter = delimiter if delimiter is not None else record.delimiter
+        sheet = sheet if sheet is not None else record.sheet
     config = resolve_config(args, args.current)
-    guard_output(args.output, args.baseline, args.current)
+    guard_output(args.output, baseline_path, args.current)
+    if record is not None and args.output is not None:
+        # Saved snapshots are read-only: no report may replace their manifest
+        # or add misleading extra files inside a named baseline folder.
+        if args.output.resolve().is_relative_to(baseline_path.parent.resolve()):
+            raise OutputCollision("--output must be outside the saved baseline directory")
     guard_output(args.output, effective_config_path(args, args.current))
-    baseline = load_any(args.baseline, args.delimiter, args.sheet, args.max_rows)
-    current = load_any(args.current, args.delimiter, args.sheet, args.max_rows)
+    baseline = load_any(baseline_path, delimiter, sheet, args.max_rows)
+    current = load_any(args.current, delimiter, sheet, args.max_rows)
     findings = redact_sensitive_findings(
         compare(baseline, current, config),
         sensitive_columns(baseline, config) | sensitive_columns(current, config)
@@ -710,12 +768,64 @@ def _run_diff(args: argparse.Namespace) -> int:
         report = render_html(view, findings)
     else:
         report = render_text(view, findings)
+    if record is not None:
+        # Every saved comparison report identifies its verified input snapshot.
+        if args.format == "json":
+            payload = json.loads(report)
+            payload["baseline"] = {"name": record.name, "sha256": record.sha256}
+            report = json.dumps(payload, indent=2, default=str)
+        elif args.format == "html":
+            report = report.replace(
+                "</body>",
+                f"<p>Saved baseline: {record.name} "
+                f"(SHA-256: {record.sha256})</p></body>",
+            )
+        else:
+            report = (f"Saved baseline: {record.name} "
+                      f"(SHA-256: {record.sha256})\n\n" + report)
     if args.output:
         atomic_write_text(args.output, report)
         print(f"Wrote {terminal_safe(args.output)} ({len(findings)} findings).")
     else:
         print(report)
     return exit_code(findings, config)
+
+
+def _run_baseline(args: argparse.Namespace) -> int:
+    action = args.baseline_action
+    if action == "save":
+        record = save_baseline(
+            args.name, args.path, store=args.store, delimiter=args.delimiter, sheet=args.sheet
+        )
+        print(f"Saved baseline {record.name!r} ({record.rows:,} rows, "
+              f"SHA-256 {record.sha256[:12]}...). Raw data is stored locally; "
+              "keep it private and out of version control.")
+        return 0
+    if action == "list":
+        records = list_baselines(store=args.store)
+        if not records:
+            print("No saved baselines.")
+        else:
+            for record in records:
+                print(f"{record.name:<24} {record.rows:>9,} rows  "
+                      f"{record.saved_at[:10]}  {record.sha256[:12]}...")
+        return 0
+    if action == "delete":
+        if not args.yes:
+            raise BaselineError("baseline delete requires --yes; this removes raw data")
+        delete_baseline(args.name, store=args.store)
+        print(f"Deleted baseline {args.name!r}.")
+        return 0
+    record, _ = get_baseline(args.name, store=args.store, verify=True)
+    if action == "verify":
+        print(f"Baseline {record.name!r}: SHA-256 verified ({record.sha256}).")
+        return 0
+    print(f"Name: {record.name}\nSaved: {record.saved_at}\n"
+          f"Source filename: {terminal_safe(record.source_name)}\n"
+          f"Rows: {record.rows:,}\nColumns: {record.columns:,}\n"
+          f"Bytes: {record.bytes:,}\nSHA-256: {record.sha256}\n"
+          f"Delimiter: {record.delimiter!r}\nWorksheet: {terminal_safe(record.sheet)}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -729,6 +839,7 @@ def main(argv: list[str] | None = None) -> int:
             "fix": _run_fix,
             "check": _run_check,
             "diff": _run_diff,
+            "baseline": _run_baseline,
         }
         handler = handlers.get(args.command)
         return handler(args) if handler is not None else 2
@@ -737,6 +848,7 @@ def main(argv: list[str] | None = None) -> int:
         # look like a failure.
         return 0
     except (
+        BaselineError,
         ConfigError,
         ReferenceError,
         ImpactError,
