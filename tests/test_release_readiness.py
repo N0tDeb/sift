@@ -78,3 +78,16 @@ def test_documented_repository_tree_stays_current() -> None:
     for name in ("FINAL_REVIEW.md", "RELEASE_CHECKLIST.md", "html-report-preview.png",
                  "vhs-demo.yml"):
         assert name in guide
+
+
+def test_release_version_matches_public_guide_and_changelog() -> None:
+    guide = (ROOT / "docs/PROJECT_GUIDE.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert f"> **Project version:** `{__version__}`" in guide
+    assert f"| Project version | `{__version__}` |" in guide
+    assert f"## {__version__}\n" in changelog
+    assert '["version"]' in project
+    assert 'path = "sift_lint/__init__.py"' in project
+    _check_tag()(f"v{__version__}", __version__)

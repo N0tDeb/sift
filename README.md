@@ -36,6 +36,20 @@ For source development and verification, see [SETUP.md](https://github.com/N0tDe
 
 Run against 22 public datasets, it found a price column that sums to zero, a menu with three products split in two by a stray hyphen, and two Titanic passengers whose names have a trailing space. Details, including the three false positives that run exposed, are in [REAL-DATA.md](https://github.com/N0tDeb/sift/blob/main/REAL-DATA.md).
 
+## Upgrading from 1.0.0
+
+Version **1.1.0** adds workbook-wide Excel checks, named local baselines,
+configurable column rules, repair previews, new impact aggregates, and
+opt-in GitHub Actions annotations. Existing command names and Python entry
+points remain, but Sift now rejects more malformed/ambiguous inputs and
+unsafe repairs instead of guessing. Finding counts and CI thresholds can
+change as a result. Review [the 1.1.0 upgrade notes](https://github.com/N0tDeb/sift/blob/main/CHANGELOG.md)
+before upgrading, especially if you automate repairs or parse finding reports.
+
+To upgrade an existing published installation, use `uv tool upgrade sift-lint`
+or `python -m pip install --upgrade sift-lint` in its environment once the new
+version is available on PyPI. Moving source on GitHub does not publish PyPI.
+
 ## Documentation
 
 For architecture, design decisions, testing strategy, security, performance, extension guidance, and operational details, see the [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md). Maintainers should also consult the [Release Checklist](https://github.com/N0tDeb/sift/blob/main/docs/RELEASE_CHECKLIST.md) before merging or publishing.

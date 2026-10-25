@@ -3,7 +3,38 @@
 Notable user-visible changes to Sift are recorded here. Releases use
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased (post-1.0.0 source changes — not on PyPI yet)
+## 1.1.0
+
+### Highlights
+
+- Add opt-in full-workbook Excel inspection and sheet-by-sheet reporting.
+- Add named, integrity-checked local baselines and configurable column roles
+  and validation policies.
+- Add JSON repair previews with explanations, additional impact aggregates,
+  and GitHub Actions annotation output.
+- Harden CSV/Excel handling, safer repairs, sensitive-value redaction, and
+  duplicate-column and drift correctness.
+- Improve cross-platform CI, distribution validation, and release checklists.
+
+### Upgrading from 1.0.0
+
+The original `check`, `diff`, `fix`, `impact`, `init`, and `profile` CLI commands,
+`lint()`/`diff()` Python entry points, and basic report formats remain available.
+Some safety and correctness changes are intentionally **not behavior-identical**:
+
+- Malformed CSV, ambiguous numeric inputs, and unsafe repair requests may now
+  fail safely or remain unmodified instead of being accepted or guessed.
+- Findings, severities, exit thresholds, inferred types, drift comparisons,
+  and aggregate-impact figures may differ on the same dataset. Recheck any CI
+  thresholds or consumers that assume exact finding counts or message prose.
+- Sensitive/identifier values are protected more conservatively; repair plans
+  and logs may contain less detail. `--force` does not bypass every safeguard.
+- New named baselines store **raw, unencrypted copies** of source files and
+  must be protected from disclosure. They are optional and Git-ignored by default.
+- Excel and Parquet remain optional dependencies. The Parquet extra requires
+  `pyarrow>=14.0.1`; supported Python versions remain 3.11 and newer.
+
+### Detailed changes
 
 - Batch 12 opt-in GitHub Actions annotations for `check --format github`:
   emit error/warning/notice workflow commands on single-file, multi-file and
@@ -102,9 +133,9 @@ Notable user-visible changes to Sift are recorded here. Releases use
 - Use absolute GitHub links in the package README so documentation and images
   resolve correctly on PyPI, and clarify that `--log` is optional.
 
-These changes remain under review in draft PR #9. Previous batch commits
-passed cross-platform CI; the final merged candidate still requires approval.
-The published `v1.0.0` artifacts remain unchanged.
+Publication of a new PyPI distribution requires a reviewed `v1.1.0`
+source tag and a separately approved GitHub Release; preparing this version
+in source does not publish it.
 
 ## 1.0.0
 

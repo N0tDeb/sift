@@ -1,6 +1,6 @@
 # Sift - Architecture, Design, Testing & Operations Guide
 
-> **Project version:** `1.0.0`
+> **Project version:** `1.1.0`
 > **Distribution and CLI:** `sift-lint` · **Python import:** `sift_lint`
 > This guide describes the project source; public distribution is handled by the release workflow.
 
@@ -79,7 +79,7 @@ The definitive project state has the following properties:
 
 | Property | Definitive state |
 |---|---|
-| Project version | `1.0.0` |
+| Project version | `1.1.0` |
 | Distribution name | `sift-lint` |
 | CLI | `sift-lint` |
 | Python requirement | `>=3.11` |

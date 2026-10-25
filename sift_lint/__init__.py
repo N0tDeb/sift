@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from .config import ColumnPolicy, Config
     from .findings import Finding
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __all__ = ["lint", "diff", "Finding", "Severity", "Config", "ColumnPolicy", "__version__"]
 
 
