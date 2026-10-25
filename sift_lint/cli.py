@@ -38,7 +38,17 @@ from .loading import LoadError, Table
 from .output import atomic_write_text, preflight_output_paths
 from .profiling import ColumnProfile
 from .references import Reference, ReferenceError, check_reference
-from .repair import HIGH, MEDIUM, Refusal, plan_repairs, render_plan, write_csv, write_log
+from .repair import (
+    HIGH,
+    MEDIUM,
+    Refusal,
+    plan_repairs,
+    render_plan,
+    render_plan_json,
+    render_rule_explanations,
+    write_csv,
+    write_log,
+)
 from .reporting import render_batch_html, render_json, render_text, summarize, write_report
 from .sources import EXCEL_SUFFIXES, PARQUET_SUFFIXES, SUPPORTED, discover, load_any
 from .text import fmt_number, plural, terminal_safe
@@ -122,6 +132,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fix_cmd.add_argument(
         "--dry-run", action="store_true", help="Report the plan without writing anything."
+    )
+    fix_cmd.add_argument(
+        "--format", choices=("text", "json"), default="text",
+        help="Preview format; JSON requires --dry-run (default: text).",
+    )
+    fix_cmd.add_argument(
+        "--explain", action="store_true",
+        help="Explain the proposed repair rules in the text plan.",
+    )
+    fix_cmd.add_argument(
+        "--show-values", action="store_true",
+        help="Opt in to showing non-sensitive before/after values in JSON dry-run previews.",
     )
     fix_cmd.add_argument(
         "--force",
@@ -434,6 +456,16 @@ def _run_impact(args: argparse.Namespace) -> int:
 
 
 def _run_fix(args: argparse.Namespace) -> int:
+    if args.format == "json" and not args.dry_run:
+        print("sift-lint: fix --format json requires --dry-run.", file=sys.stderr)
+        return 2
+    if args.show_values and (args.format != "json" or not args.dry_run):
+        print("sift-lint: --show-values requires --dry-run --format json.", file=sys.stderr)
+        return 2
+    if args.explain and args.format == "json":
+        print("sift-lint: JSON previews include explanations; omit --explain.",
+              file=sys.stderr)
+        return 2
     # A limited read is valid for inspection but must never be written as though
     # it contained the full file. That would silently discard the unread tail.
     if args.max_rows is not None and not args.dry_run:
@@ -557,6 +589,31 @@ def _run_fix(args: argparse.Namespace) -> int:
         )
         return 2
 
+    if args.dry_run and args.format == "json":
+        blockers = []
+        if excel_formulas:
+            blockers.append("excel-formulas")
+        if introduced:
+            blockers.append("formula-injection-introduced")
+        if formula_refusals and not args.force:
+            blockers.append("formula-injection-unresolved")
+        accepted_risks = []
+        if args.force and ragged:
+            accepted_risks.append("ragged-rows")
+        if args.force and header_hazard:
+            accepted_risks.append("formula-injection-header")
+        if args.force and formula_refusals:
+            accepted_risks.append("formula-injection-existing")
+        print(render_plan_json(
+            table, plan, destination, private, include_values=args.show_values,
+            blockers=blockers, accepted_risks=accepted_risks,
+            min_confidence=args.min_confidence,
+            drop_duplicates=args.drop_duplicates,
+            partial_read=args.max_rows is not None,
+            output_selected=args.output is not None,
+        ))
+        return 0
+
     # Write before reporting. `sift-lint fix ... | head` closes the pipe part
     # way through the summary, and a half-printed report must not mean a
     # file that never got written.
@@ -570,6 +627,9 @@ def _run_fix(args: argparse.Namespace) -> int:
             )
 
     print(render_plan(table, plan, destination, private))
+    if args.explain:
+        print()
+        print(render_rule_explanations(plan))
     if args.dry_run:
         return 0
 

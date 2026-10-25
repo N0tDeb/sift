@@ -113,6 +113,33 @@ Useful flags: `--min-confidence high|medium`, `--dry-run`, `--key ORDER_ID` (mus
 
 Cross-file references are checked with `--references FILE:LOCAL=FOREIGN`. For example, while checking `orders.csv`, `--references customers.csv:customer_id=id` verifies that every non-empty `orders.customer_id` exists in `customers.id`; broken, non-unique, and normalization-only matches are reported with stable reference finding codes.
 
+### Preview repairs with explanations
+
+`fix` plans changes before writing them. For a machine-readable, **read-only**
+preview (JSON on stdout; no repaired CSV or log is created):
+
+```bash
+sift-lint fix examples/orders_messy.csv --dry-run --format json
+sift-lint fix examples/orders_messy.csv --dry-run --explain
+```
+
+The JSON preview (`schema_version: 1`) lists each proposed cell edit with
+source line, column key, rule, confidence and a data-free explanation; deleted
+duplicate rows include provenance, never complete row contents. It also lists
+refusals, detected output hazards and any risks accepted using `--force`. **Cell values are omitted by default.**
+Add `--show-values` only with `--dry-run --format json` to deliberately include
+before/after contents in *non-sensitive* columns. Sensitive columns remain
+redacted. Detection is heuristic: do not publish previews with `--show-values`
+without reviewing their contents. Use `--min-confidence medium` and
+`--drop-duplicates` to preview those optional repair choices.
+
+`fix --format json` is supported **only** with `--dry-run`; ordinary writes
+keep the existing text summary. `--explain` adds human-readable rule
+explanations to the text summary, including during a real repair. The JSON
+`write_permitted` field reflects known content-safety blockers, **not** a
+filesystem permissions check or guarantee of successful writing; a preview
+with `--max-rows` is never safe to export as a complete file.
+
 ## Other formats, and whole folders
 
 CSV needs no extra dependencies. Excel and Parquet readers are optional:

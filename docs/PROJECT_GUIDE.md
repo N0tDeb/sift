@@ -595,6 +595,29 @@ The CLI guards against report/repair destinations that would overwrite the input
 
 ---
 
+### Structured repair previews and explanations
+
+`fix --dry-run --format json` renders a versioned (`schema_version: 1`),
+non-mutating plan suitable for review or tooling. Per-cell entries contain
+source line, unique column key, rule, confidence and a fixed explanation;
+rows proposed for removal contain line provenance but no original values.
+Refusals, write blockers and accepted risks are listed separately. No source cell values are
+included by default. `--show-values` explicitly opts into before/after values
+in non-sensitive columns; detected sensitive columns stay redacted. Heuristic
+privacy detection can miss unexpected secrets, so opt-in previews still need
+human review before sharing. JSON output requires `--dry-run` to ensure it is
+one valid document rather than a mixture of structured data and post-write
+status text.
+
+`fix --explain` appends descriptions for the repair rules actually proposed
+in a text plan. It does not change which repairs run, the confidence floor,
+refusals or output files. JSON plan rendering is available to Python callers
+through `sift_lint.repair.render_plan_json` as an internal helper.
+
+Preview safety flags describe known content risks, not destination validity or
+cross-file transactional guarantees; a bounded `--max-rows` preview explicitly
+reports that it cannot safely be exported as a complete repaired file.
+
 ## 13. Safe repair
 
 Repair is deliberately separated into **planning** and **writing**.

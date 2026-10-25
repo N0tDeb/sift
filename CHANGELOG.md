@@ -5,6 +5,13 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 8 repair transparency: `fix --dry-run --format json` emits a structured,
+  versioned plan with per-change rule explanations, refusal details, deleted-row
+  provenance and content-safety blockers. Values are hidden by default;
+  `--show-values` opts into displaying non-sensitive before/after values.
+  `fix --explain` adds data-free rule descriptions to text plans without
+  altering repairs. Normal text output and repair defaults remain unchanged.
+
 - Batch 7 configurable column policies: opt-in semantic roles
   (`identifier`, `measure`, `category`, `date`, `text`, `sensitive`) and strict
   read-only validation for required columns/values, exact allowed values,

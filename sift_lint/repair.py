@@ -557,6 +557,128 @@ def write_log(
             ])
 
 
+
+# Reasons are deliberately constant and contain no source data. A preview must
+# remain useful even when showing raw cell values would disclose private data.
+REPAIR_EXPLANATIONS = {
+    "trim-whitespace": "Remove leading/trailing whitespace and replace non-breaking spaces.",
+    "collapse-spaces": "Collapse runs of whitespace in non-sensitive text (medium confidence).",
+    "blank-null": "Replace recognized textual missing-value markers with an empty cell.",
+    "plain-number": "Normalize a numeric representation only when its convention is supported.",
+    "iso-date": "Rewrite dates to ISO 8601 when date order has sufficient evidence.",
+    "canonical-label": "Unify labels that normalize to the same category (medium confidence).",
+    "sentinel-null": "Remove a repeated numeric placeholder likely representing missing data.",
+    "drop-duplicate-row": "Keep the earliest occurrence of each identical repaired row.",
+}
+
+
+def render_plan_json(
+    table: Table,
+    plan: RepairPlan,
+    destination: str,
+    sensitive: set[str] | None = None,
+    *,
+    include_values: bool = False,
+    blockers: list[str] | None = None,
+    accepted_risks: list[str] | None = None,
+    min_confidence: str = HIGH,
+    drop_duplicates: bool = False,
+    partial_read: bool = False,
+    output_selected: bool = False,
+) -> str:
+    """Render a non-mutating, stable JSON repair preview.
+
+    Cell contents are withheld by default. An explicit opt-in reveals only
+    values from columns *not* classified as sensitive. Deleted-row contents
+    are never included: one row can contain several distinct sensitive fields.
+    """
+    from .checks import sensitive_columns as detect_sensitive_columns
+
+    private = set(sensitive or ()) | plan.private_columns
+    private.update(detect_sensitive_columns(table))
+    issues = list(dict.fromkeys(blockers or []))
+    grouped = plan.by_rule()
+    rule_counts = {rule: len(changes) for rule, changes in sorted(grouped.items())}
+    if plan.dropped_rows:
+        rule_counts["drop-duplicate-row"] = len(plan.dropped_rows)
+
+    changes = []
+    for change in plan.changes:
+        record = {
+            "line": change.line,
+            "column": change.column,
+            "column_key": change.column_key or change.column,
+            "rule": change.rule,
+            "confidence": change.confidence,
+            "explanation": REPAIR_EXPLANATIONS.get(change.rule, "Review the proposed change."),
+        }
+        if include_values:
+            hidden = change.column in private or (change.column_key or "") in private
+            record["before"] = REDACTED_SENSITIVE_VALUE if hidden else change.before
+            record["after"] = REDACTED_SENSITIVE_VALUE if hidden else change.after
+        changes.append(record)
+
+    refusals = []
+    for refusal in plan.refusals:
+        refusals.append({
+            "column": refusal.column,
+            "rule": refusal.rule,
+            "reason": (
+                "Value details withheld because the column appears sensitive."
+                if refusal.column in private else refusal.reason
+            ),
+        })
+
+    payload = {
+        "schema_version": 1,
+        "command": "fix",
+        "mode": "preview",
+        "source": str(table.path),
+        "destination": destination,
+        "output_selected": output_selected,
+        "rows_read": table.n_rows,
+        "partial_read": partial_read,
+        "min_confidence": min_confidence,
+        "drop_duplicates": drop_duplicates,
+        "values_included": include_values,
+        "write_permitted": not issues and not partial_read,
+        "write_blockers": issues + (["partial-read"] if partial_read else []),
+        "accepted_risks": list(dict.fromkeys(accepted_risks or [])),
+        "summary": {
+            "cells_changed": len(plan.changes),
+            "rows_dropped": len(plan.dropped_rows),
+            "refusals": len(plan.refusals),
+            "by_rule": rule_counts,
+        },
+        "changes": changes,
+        "dropped_rows": [
+            {
+                "line": dropped.line,
+                "duplicate_of_line": dropped.duplicate_of_line,
+                "matched_after_normalization": dropped.matched_after_normalization,
+                "rule": "drop-duplicate-row",
+                "explanation": REPAIR_EXPLANATIONS["drop-duplicate-row"],
+            }
+            for dropped in plan.dropped_rows
+        ],
+        "refusals": refusals,
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+def render_rule_explanations(plan: RepairPlan) -> str:
+    """Human-readable, data-free rule descriptions for the current plan."""
+    rules = sorted(set(plan.by_rule()) | ({"drop-duplicate-row"} if plan.dropped_rows else set()))
+    if not rules:
+        return "No automatic changes proposed; see the refusals above if any."
+    lines = ["Why these changes?"]
+    for rule in rules:
+        lines.append(f"  {rule}: {REPAIR_EXPLANATIONS.get(rule, 'Review the proposed change.')}")
+    lines.append("High-confidence means evidence supports the rule, not that it is infallible.")
+    lines.append("Medium-confidence changes should receive additional human review.")
+    return "\n".join(lines)
+
+
 def render_plan(
     table: Table,
     plan: RepairPlan,
