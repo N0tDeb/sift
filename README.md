@@ -127,7 +127,7 @@ Sift reads and profiles data in memory, so memory use can substantially exceed f
 
 ## Version and documentation
 
-The `main` source contains the **1.1.0** release candidate. Until the v1.1.0 GitHub Release and PyPI publication have succeeded, `uv tool install sift-lint` and `pip install sift-lint` install the latest **published** version instead. Version 1.1.0 adds workbook-wide checks, column rules, named baselines, richer repair previews, impact aggregates and CI annotations. Some malformed inputs and unsafe repairs are now rejected rather than accepted; see the [1.1.0 upgrade notes](https://github.com/N0tDeb/sift/blob/main/CHANGELOG.md) before upgrading an existing automation.
+Package managers install the latest version published to [PyPI](https://pypi.org/project/sift-lint/), which may differ from the current GitHub source. Run `sift-lint --version` to check your installed version. Sift 1.1.0 adds workbook-wide checks, column rules, named baselines, richer repair previews, impact aggregates and CI annotations. Some malformed inputs and unsafe repairs are now rejected rather than accepted; see the [1.1.0 upgrade notes](https://github.com/N0tDeb/sift/blob/main/CHANGELOG.md) before updating existing automation.
 
 - [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md) — architecture, format handling, CLI options, repair behavior and limitations
 - [SETUP.md](https://github.com/N0tDeb/sift/blob/main/SETUP.md) — local development and CI
