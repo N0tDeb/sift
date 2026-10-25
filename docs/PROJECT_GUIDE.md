@@ -161,7 +161,8 @@ sift/
 │   └── workflows/
 │       ├── README.md
 │       ├── ci.yml
-│       └── release.yml
+│       ├── release.yml
+│       └── vhs-demo.yml
 ├── bench/
 │   ├── __init__.py
 │   ├── corruptions.py
@@ -169,9 +170,13 @@ sift/
 ├── demo/
 │   ├── README.md
 │   ├── demo.tape
-│   └── orders.csv
+│   ├── orders.csv
+│   └── sift.gif
 ├── docs/
-│   └── PROJECT_GUIDE.md
+│   ├── FINAL_REVIEW.md
+│   ├── PROJECT_GUIDE.md
+│   ├── RELEASE_CHECKLIST.md
+│   └── html-report-preview.png
 ├── examples/
 │   ├── customers.csv
 │   ├── orders.parquet
@@ -181,9 +186,9 @@ sift/
 │   ├── orders_messy.csv
 │   └── orders_with_refs.csv
 ├── sift_lint/
-│   └── ...18 Python modules...
+│   └── ...19 Python modules...
 ├── tests/
-│   └── test_sift.py
+│   └── test_*.py (15 regression modules)
 ├── .gitattributes
 ├── .gitignore
 ├── BENCHMARK.md

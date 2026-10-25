@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .loading import LoadError
-from .sources import SUPPORTED, load_any
+from .sources import CSV_SUFFIXES, EXCEL_SUFFIXES, NAMED_ONLY_SUFFIXES, SUPPORTED, load_any
 
 DEFAULT_STORE = Path(".sift/baselines")
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
@@ -137,6 +137,10 @@ def save_baseline(
     suffix = source.suffix.lower()
     if suffix not in SUPPORTED:
         raise BaselineError(f"cannot save unsupported file type {suffix!r}")
+    if delimiter is not None and suffix not in CSV_SUFFIXES | NAMED_ONLY_SUFFIXES:
+        raise BaselineError("--delimiter applies only to delimited text baselines")
+    if sheet is not None and suffix not in EXCEL_SUFFIXES:
+        raise BaselineError("--sheet applies only to Excel baselines")
     if not source.is_file():
         raise BaselineError(f"source {source} is not a regular file")
     root = _root(store, create=True)

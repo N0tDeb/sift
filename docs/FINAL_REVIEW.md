@@ -1,6 +1,9 @@
-# Final hardening review — source candidate after Batch 4
+# Historical hardening review — Batch 5 source candidate
 
-These findings describe an **unreleased branch candidate**. Passing tests is
+These are **historical findings from the Batch 5/6 audit**, not a certification
+of the current branch.
+For the current release process see [the release checklist](RELEASE_CHECKLIST.md).
+The findings describe an **unreleased branch candidate**. Passing tests is
 not proof that the software is defect-free, and nothing here authorizes a merge,
 GitHub release, or PyPI publication.
 

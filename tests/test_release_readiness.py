@@ -63,3 +63,18 @@ def test_release_checklist_mentions_approval_and_snapshot_privacy() -> None:
     assert "explicit approval" in content
     assert "private baseline snapshots" in content
     assert "10" in content or "six OS/Python" in content
+
+
+def test_html_preview_asset_matches_its_png_extension() -> None:
+    asset = ROOT / "docs/html-report-preview.png"
+    assert asset.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+def test_documented_repository_tree_stays_current() -> None:
+    guide = (ROOT / "docs/PROJECT_GUIDE.md").read_text(encoding="utf-8")
+    count = len(list((ROOT / "sift_lint").glob("*.py")))
+    regression_count = len(list((ROOT / "tests").glob("test_*.py")))
+    assert f"...{count} Python modules..." in guide
+    assert f"test_*.py ({regression_count} regression modules)" in guide
+    for name in ("FINAL_REVIEW.md", "RELEASE_CHECKLIST.md", "html-report-preview.png",
+                 "vhs-demo.yml"):
+        assert name in guide

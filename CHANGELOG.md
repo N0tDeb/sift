@@ -102,8 +102,9 @@ Notable user-visible changes to Sift are recorded here. Releases use
 - Use absolute GitHub links in the package README so documentation and images
   resolve correctly on PyPI, and clarify that `--log` is optional.
 
-These changes are prepared for review and cross-platform CI. The published
-`v1.0.0` artifacts remain unchanged.
+These changes remain under review in draft PR #9. Previous batch commits
+passed cross-platform CI; the final merged candidate still requires approval.
+The published `v1.0.0` artifacts remain unchanged.
 
 ## 1.0.0
 

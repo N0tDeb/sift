@@ -177,3 +177,41 @@ def test_saved_diff_cannot_overwrite_snapshot_manifest(tmp_path: Path, capsys) -
     assert status == 2
     assert "outside the saved baseline" in capsys.readouterr().err
     assert manifest.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "source_name,option,value",
+    [
+        ("orders.xlsx", "--delimiter", '"'),
+        ("orders.xlsx", "--delimiter", "^"),
+        ("data.csv", "--sheet", "Anything"),
+    ],
+)
+def test_baseline_rejects_options_irrelevant_to_format(
+    tmp_path: Path, capsys, source_name: str, option: str, value: str
+) -> None:
+    if source_name.endswith(".xlsx"):
+        source = Path(__file__).resolve().parents[1] / "examples/orders.xlsx"
+    else:
+        source = _csv(tmp_path, "data.csv", "id\n123\n")
+    store = tmp_path / "store"
+    status = main([
+        "baseline", "save", "bad", str(source), "--store", str(store), option, value,
+    ])
+    assert status == 2
+    assert "only" in capsys.readouterr().err
+    assert not store.exists()
+
+
+def test_excel_sheet_selection_still_saves_valid_baseline(tmp_path: Path, capsys) -> None:
+    from sift_lint.sources import excel_sheet_names
+
+    source = Path(__file__).resolve().parents[1] / "examples/orders.xlsx"
+    sheet = excel_sheet_names(source)[0]
+    store = tmp_path / "store"
+    assert main([
+        "baseline", "save", "excel", str(source), "--sheet", sheet,
+        "--store", str(store),
+    ]) == 0
+    assert main(["baseline", "verify", "excel", "--store", str(store)]) == 0
+    assert "verified" in capsys.readouterr().out
