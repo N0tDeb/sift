@@ -43,7 +43,8 @@ def diff(
     old = load_any(Path(baseline), **kwargs)
     new = load_any(Path(current), **kwargs)
     return redact_sensitive_findings(
-        compare(old, new, config or _Config()), sensitive_columns(new)
+        compare(old, new, config or _Config()),
+        sensitive_columns(old) | sensitive_columns(new)
     )
 
 

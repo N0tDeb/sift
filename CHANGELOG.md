@@ -5,6 +5,16 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 6 privacy/correctness: redact comparisons using both datasets and
+  reference checks using both files' sensitivity, including common secret
+  field names; preserve opaque
+  sensitive values during automatic repair; stop duplicate sensitive-column
+  warnings. Verify repairs using the actual output delimiter, write real TSV
+  when the output suffix is `.tsv`, and require PyArrow >=14.0.1 for optional
+  Parquet support. Suppress meaningless numeric distribution-shift warnings on
+  recognized postal codes and identifier columns. Update security and
+  architecture documentation.
+
 - Batch 5 schema hardening: reserve real header names when generating keys
   for repeated columns (including names like `v#1`); apply the same naming
   policy across CSV, Excel and Parquet. Detect added/removed duplicate-header

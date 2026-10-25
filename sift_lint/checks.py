@@ -964,6 +964,10 @@ SENSITIVE_NAMES = {
     "passport", "passport number", "date of birth", "dob", "iban",
     "credit card", "card number", "cardnumber", "cvv", "password", "sort code",
     "tax id", "nino", "aadhaar", "pan number",
+    "email", "email address", "phone", "phone number", "telephone", "mobile",
+    "account number", "bank account", "routing number", "api key", "api token",
+    "access token", "refresh token", "auth token", "session token", "token",
+    "secret", "client secret", "private key", "password hash", "credential",
 }
 
 
@@ -1107,17 +1111,6 @@ def check_sensitive_data(table: Table, config: Config) -> list[Finding]:
                     )
                 )
 
-        if normalize_label(column.name) in SENSITIVE_NAMES:
-            findings.append(
-                Finding(
-                    "sensitive-column-name",
-                    Severity.INFO,
-                    f"{column.name!r} is named like a field that carries personal "
-                    "or financial data. Sift has not looked at the values.",
-                    column=column.name,
-                    detail={"column_index": column.index},
-                )
-            )
     return findings
 
 

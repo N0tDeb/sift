@@ -78,6 +78,17 @@ def check_reference(
             f"{reference.path.name} has no column {reference.foreign!r}."
         )
 
+    # A non-sensitive local name can reference a sensitive foreign column.
+    # Protect all reference findings at the point they are created, including
+    # direct Python callers that do not pass through the CLI.
+    from .checks import sensitive_columns
+    from .findings import redact_sensitive_findings
+
+    private_local = (
+        {reference.local}
+        if local.name in sensitive_columns(table) or foreign.name in sensitive_columns(other)
+        else set()
+    )
     known = {value for value in foreign.values if not is_blank(value)}
 
     # A key that repeats on the far side is not a broken reference, but it is
@@ -162,4 +173,4 @@ def check_reference(
             )
         )
 
-    return config.filter(findings)
+    return redact_sensitive_findings(config.filter(findings), private_local)

@@ -88,9 +88,9 @@ The definitive project state has the following properties:
 | Parquet extra | `pyarrow>=14.0` |
 | Build backend | Hatchling |
 | License | MIT |
-| Python source modules | 16 |
+| Python source modules | 17 |
 | Registered check functions | 19 |
-| Stable documented finding codes | 63 |
+| Stable documented finding codes | 64 |
 | CLI subcommands | 6 |
 | Verification | Run the latest GitHub Actions CI matrix |
 | Known-corruption benchmark | 28/28 detected |
@@ -180,7 +180,7 @@ sift/
 │   ├── orders_messy.csv
 │   └── orders_with_refs.csv
 ├── sift_lint/
-│   └── ...16 Python modules...
+│   └── ...17 Python modules...
 ├── tests/
 │   └── test_sift.py
 ├── .gitattributes
@@ -380,7 +380,7 @@ Profiles track enough evidence for later checks to decide whether a column is nu
 
 ## 9. Checks and findings
 
-Sift has **19 registered check functions** and **63 stable documented finding codes**.
+Sift has **19 registered check functions** and **64 stable documented finding codes**.
 
 The codes are grouped in [`CODES.md`](../CODES.md) as follows:
 

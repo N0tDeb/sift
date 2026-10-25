@@ -12,6 +12,7 @@ from collections import Counter, defaultdict
 
 from .config import Config
 from .findings import Finding, Severity
+from .inference import looks_like_id_name, normalize_label
 from .loading import LoadError, Table
 from .profiling import BOOLEAN, CATEGORICAL, EMPTY, NUMERIC
 from .text import fmt_number, plural
@@ -132,7 +133,15 @@ def compare(baseline: Table, current: Table, config: Config) -> list[Finding]:
                 # non-zero, including when the current median has fallen to zero.
                 # A zero baseline has no meaningful percentage denominator, so do
                 # not invent an absolute threshold here.
-                if old_median is not None and old_median != 0 and new_median is not None:
+                # Postal codes and identifier labels are categorical keys even
+                # when they consist entirely of digits. A median shift there
+                # is meaningless and generates noise rather than insight.
+                name_role = normalize_label(name)
+                identifier = looks_like_id_name(name) or name_role in {
+                    "zip", "zip code", "zipcode", "postal", "postal code", "postcode",
+                }
+                if (not identifier and old_median is not None and old_median != 0
+                        and new_median is not None):
                     shift = abs(new_median - old_median) / abs(old_median)
                     if shift >= MEDIAN_SHIFT:
                         findings.append(
@@ -190,4 +199,11 @@ def compare(baseline: Table, current: Table, config: Config) -> list[Finding]:
                     detail={"from": baseline.n_rows, "to": current.n_rows},
                 )
             )
-    return config.filter(findings)
+    # Missing-category values originate in the baseline, not necessarily in
+    # the current file. Classify both datasets before emitting any examples,
+    # including for callers using compare() directly.
+    from .checks import sensitive_columns
+    from .findings import redact_sensitive_findings
+
+    private = sensitive_columns(baseline) | sensitive_columns(current)
+    return redact_sensitive_findings(config.filter(findings), private)

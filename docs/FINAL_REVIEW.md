@@ -82,8 +82,8 @@ Local checks for this batch: Python compilation; all available tests; the
 28-case synthetic corruption benchmark and clean control; targeted CSV/Excel
 regressions. Optional PyArrow could not be installed locally. Ruff and
 wheel/sdist builds could not be run locally because external package access
-was unavailable. **No final cross-platform CI result exists for Batch 5 until
-this exact commit is pushed and GitHub Actions completes.**
+was unavailable. **Batch 5 later passed all 10 GitHub CI jobs at commit
+`f1d394e5bdeb3271f0fcda34a0d94b68c594864f` (workflow `40175650994`).**
 
 Before declaring the branch merge-ready, verify all 10 GitHub CI jobs (six
 test/benchmark jobs, three package jobs, one data-gate), inspect any failures,
@@ -101,3 +101,16 @@ by `fix`; cross-file output writes are individually atomic rather than a
 single transaction; sensitive-value detection is heuristic; in-memory tables
 constrain practical scale; and the controlled 28-case benchmark says nothing
 about universal recall. New feature ideas belong on a separate roadmap.
+
+## Follow-up independent audit and corrections (Batch 6)
+
+An additional audit after the five original green batches reproduced sensitive
+baseline category leakage, sensitive foreign-reference example leakage,
+normalization of password-like values, duplicate sensitive-name findings,
+wrong post-repair detection of custom separators, and an inaccurately labeled
+TSV output. Batch 6 adds focused fixes and regressions for these cases, raises
+the optional PyArrow minimum beyond its known vulnerable 14.0.0 release, and
+suppresses median-shift statistics for obviously identifier-shaped columns.
+These changes require their own GitHub CI verification on the precise new commit.
+Existing findings about optional dependencies, in-memory scale, cross-file
+transaction limitations, and heuristic privacy detection remain in force.

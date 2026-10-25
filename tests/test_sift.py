@@ -2529,8 +2529,9 @@ def test_fix_audit_log_redacts_sensitive_values_but_keeps_other_values(tmp_path)
     assert "alice@example.com" not in log
     assert "bob@example.com" not in log
     assert "carol@example.com" not in log
-    assert "[redacted sensitive value]" in log
+    assert "[redacted sensitive value]" not in log  # no sensitive edits are performed
     assert " North " in log  # non-sensitive audit values remain exact
+    assert " alice@example.com " in output.read_text(encoding="utf-8")
 
 
 def test_public_diff_redacts_sensitive_category_examples(tmp_path):

@@ -134,7 +134,9 @@ def test_impact_redacts_sensitive_group_labels(tmp_path: Path, capsys) -> None:
     assert main(["impact", str(src), "--no-config", "--group-by", "password"]) == 0
     output = capsys.readouterr().out
     assert secret not in output
-    assert "redacted sensitive group labels" in output
+    # Opaque values are no longer automatically normalized; there are no
+    # group merges to display, so the secret must simply stay undisclosed.
+    assert "GROUP BY password" in output
 
 
 def test_formula_values_in_log_use_reversible_nonformula_encoding(tmp_path: Path) -> None:

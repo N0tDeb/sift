@@ -557,8 +557,10 @@ def _run_fix(args: argparse.Namespace) -> int:
     # Write before reporting. `sift-lint fix ... | head` closes the pipe part
     # way through the summary, and a half-printed report must not mean a
     # file that never got written.
+    output_delimiter = ("\t" if args.output and args.output.suffix.lower() == ".tsv"
+                        else table.delimiter)
     if not args.dry_run:
-        write_csv(args.output, table.header, rows, table.delimiter)
+        write_csv(args.output, table.header, rows, output_delimiter)
         if args.log:
             write_log(
                 args.log, plan, private, source_path=table.path, header=table.header
@@ -569,7 +571,7 @@ def _run_fix(args: argparse.Namespace) -> int:
         return 0
 
     before = run_checks(table, config)
-    after = run_checks(load_any(args.output), config)
+    after = run_checks(load_any(args.output, delimiter=output_delimiter), config)
     print()
     print(
         f"Findings: {len(before)} before, {len(after)} after. "
@@ -627,7 +629,8 @@ def _run_diff(args: argparse.Namespace) -> int:
     baseline = load_any(args.baseline, args.delimiter, args.sheet, args.max_rows)
     current = load_any(args.current, args.delimiter, args.sheet, args.max_rows)
     findings = redact_sensitive_findings(
-        compare(baseline, current, config), sensitive_columns(current)
+        compare(baseline, current, config),
+        sensitive_columns(baseline) | sensitive_columns(current)
     )
     view = Table(
         path=current.path,

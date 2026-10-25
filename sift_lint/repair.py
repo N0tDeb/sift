@@ -367,6 +367,12 @@ def plan_repairs(
     floor = RANK[min_confidence]
     plan = RepairPlan()
     grid = [list(column.values) for column in table.columns]
+    # Privacy flags also indicate columns whose exact bytes can carry semantic
+    # meaning (e.g., passwords with leading spaces). These are read-only by
+    # default, irrespective of the requested repair confidence.
+    from .checks import sensitive_columns
+
+    private = sensitive_columns(table)
 
     for index, column in enumerate(table.columns):
         # Protect even predominantly numeric or date columns. A lone formula
@@ -390,6 +396,24 @@ def plan_repairs(
                     "the formula deliberately, then run fix again.",
                 )
             )
+            continue
+
+        if column.name in private:
+            rule_refuse_unfixable(column, grid[index], plan)
+            candidate = RepairPlan()
+            working = list(grid[index])
+            for rule in RULES[1:]:
+                rule(column, working, candidate)
+            if any(RANK[change.confidence] >= floor for change in candidate.changes):
+                plan.refusals.append(
+                    Refusal(
+                        column.name,
+                        "sensitive-value-preserved",
+                        "Sensitive or opaque column values are preserved exactly. "
+                        "Review them manually; automatic normalization may "
+                        "change their meaning.",
+                    )
+                )
             continue
 
         for rule in RULES:
