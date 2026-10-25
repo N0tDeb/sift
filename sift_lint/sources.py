@@ -104,6 +104,32 @@ def _build(path: Path, header: list[str], rows: list[list[str]], findings: list[
     )
 
 
+def excel_sheet_names(path: Path) -> list[str]:
+    """List every worksheet, including hidden sheets, without loading its cells.
+
+    Workbook-wide inspection must not quietly skip a sheet the user could
+    overlook in the Excel interface. OpenPyXL is an optional dependency.
+    """
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise LoadError(
+            "Reading .xlsx needs openpyxl: pip install 'sift-lint[excel]'"
+        ) from exc
+
+    try:
+        workbook = load_workbook(path, read_only=True, data_only=False)
+    except Exception as exc:
+        raise LoadError(f"{path.name} could not be read as a workbook ({exc}).") from exc
+    try:
+        names = list(workbook.sheetnames)
+    finally:
+        workbook.close()
+    if not names:
+        raise LoadError(f"Workbook has no worksheets: {path}")
+    return names
+
+
 def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None) -> Table:
     validate_max_rows(max_rows)
     try:

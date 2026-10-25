@@ -58,7 +58,14 @@ from .repair import (
     write_log,
 )
 from .reporting import render_batch_html, render_json, render_text, summarize, write_report
-from .sources import EXCEL_SUFFIXES, PARQUET_SUFFIXES, SUPPORTED, discover, load_any
+from .sources import (
+    EXCEL_SUFFIXES,
+    PARQUET_SUFFIXES,
+    SUPPORTED,
+    discover,
+    excel_sheet_names,
+    load_any,
+)
 from .text import fmt_number, plural, terminal_safe
 
 THRESHOLDS = {"error": 3, "warning": 2, "info": 1, "none": 99}
@@ -100,7 +107,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Files or directories. Directories are searched for supported files.",
     )
-    check_cmd.add_argument("--sheet", help="Worksheet to read from an .xlsx file.")
+    check_sheet = check_cmd.add_mutually_exclusive_group()
+    check_sheet.add_argument("--sheet", help="Worksheet to read from an .xlsx file.")
+    check_sheet.add_argument(
+        "--all-sheets", action="store_true",
+        help="Inspect every worksheet in Excel workbooks, including hidden sheets.",
+    )
     check_cmd.add_argument(
         "--references",
         action="append",
@@ -237,7 +249,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     profile_cmd = sub.add_parser("profile", help="Describe each column, no judgement.")
     profile_cmd.add_argument("path", type=Path)
-    profile_cmd.add_argument("--sheet")
+    profile_sheet = profile_cmd.add_mutually_exclusive_group()
+    profile_sheet.add_argument("--sheet")
+    profile_sheet.add_argument(
+        "--all-sheets", action="store_true",
+        help="Profile every worksheet in an Excel workbook, including hidden sheets.",
+    )
     profile_cmd.add_argument("--delimiter")
     profile_cmd.add_argument("--max-rows", type=int)
     profile_cmd.add_argument("--config", type=Path)
@@ -413,7 +430,123 @@ def check_many(
     return 2 if failures else max(result_codes, default=0)
 
 
+def check_all_sheets(
+    targets: list[Path], args: argparse.Namespace,
+    references: list[Reference], reference_load,
+) -> int:
+    """Inspect every Excel sheet, keeping file and worksheet identities distinct.
+
+    Keep this opt-in report separate from single-file reports: a clean sheet
+    must not hide an unreadable or damaged sibling. Other supported file types
+    in a directory continue to be checked once.
+    """
+    results: list[tuple[Path, str | None, Table, list]] = []
+    failures: list[tuple[Path, str | None, str]] = []
+    return_codes: list[int] = []
+
+    for target in targets:
+        if target.suffix.lower() in EXCEL_SUFFIXES:
+            try:
+                sheets: list[str | None] = excel_sheet_names(target)
+            except (LoadError, OSError) as exc:
+                failures.append((target, None, str(exc)))
+                continue
+        else:
+            sheets = [None]
+        config = resolve_config(args, target)
+        for sheet in sheets:
+            try:
+                table = load_any(target, args.delimiter, sheet, args.max_rows)
+            except (LoadError, OSError) as exc:
+                failures.append((target, sheet, str(exc)))
+                continue
+            # No worksheet is omitted in --all-sheets mode, so the ordinary
+            # single-sheet warning would be misleading in these reports.
+            findings = [f for f in run_checks(table, config) if f.code != "unread-sheets"]
+            for reference in references:
+                try:
+                    findings.extend(check_reference(table, reference, config, reference_load))
+                except (ReferenceError, LoadError, OSError) as exc:
+                    failures.append((target, sheet, str(exc)))
+            findings = redact_sensitive_findings(findings, sensitive_columns(table, config))
+            results.append((target, sheet, table, findings))
+            return_codes.append(exit_code(findings, config))
+
+    def display(path: Path, sheet: str | None) -> str:
+        return f"{path} [sheet: {sheet}]" if sheet is not None else str(path)
+
+    if args.format == "json":
+        payload = {
+            "files": [
+                {
+                    "file": str(path),
+                    **({"sheet": sheet} if sheet is not None else {}),
+                    "rows": table.n_rows,
+                    "columns": [col.name for col in table.columns],
+                    "summary": summarize(findings),
+                    "findings": [finding.to_dict() for finding in findings],
+                }
+                for path, sheet, table, findings in results
+            ],
+            "unreadable": [
+                {
+                    "file": str(path),
+                    **({"sheet": sheet} if sheet is not None else {}),
+                    "error": error,
+                }
+                for path, sheet, error in failures
+            ],
+        }
+        body = json.dumps(payload, indent=2, default=str)
+    elif args.format == "html":
+        body = render_batch_html(
+            [(Path(display(path, sheet)), findings) for path, sheet, _, findings in results],
+            [(Path(display(path, sheet)), error) for path, sheet, error in failures],
+        )
+    else:
+        lines = []
+        for path, sheet, _table, findings in results:
+            tally = summarize(findings)
+            counts = ", ".join(
+                f"{tally[k]} {k}" for k in ("error", "warning", "info") if tally[k]
+            )
+            lines.append(f"{terminal_safe(display(path, sheet))}  {counts or 'clean'}")
+        for path, sheet, error in failures:
+            lines.append(
+                f"{terminal_safe(display(path, sheet))}  unreadable: {terminal_safe(error)}"
+            )
+        body = "\n".join(lines)
+
+    if args.output:
+        atomic_write_text(args.output, body)
+        print(f"Wrote {terminal_safe(args.output)}")
+    else:
+        print(body)
+    return 2 if failures else max(return_codes, default=0)
+
+
 def _run_profile(args: argparse.Namespace) -> int:
+    if args.all_sheets:
+        if args.path.suffix.lower() not in EXCEL_SUFFIXES:
+            raise LoadError("--all-sheets for profile requires an .xlsx or .xlsm workbook")
+        config = resolve_config(args, args.path)
+        failures = False
+        for sheet in excel_sheet_names(args.path):
+            try:
+                table = load_any(args.path, args.delimiter, sheet, args.max_rows)
+            except (LoadError, OSError) as exc:
+                print(f"sift-lint: sheet {terminal_safe(sheet)}: {terminal_safe(exc)}",
+                      file=sys.stderr)
+                failures = True
+                continue
+            print(f"{terminal_safe(table.path)} [sheet: {terminal_safe(sheet)}]  "
+                  f"{plural(table.n_rows, 'row')}, "
+                  f"{plural(len(table.columns), 'column')}")
+            private = sensitive_columns(table, config)
+            for column in table.columns:
+                print(_profile_row(column.profile, sensitive=column.name in private))
+            print()
+        return 2 if failures else 0
     table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
     print(
         f"{terminal_safe(table.path)}  {plural(table.n_rows, 'row')}, "
@@ -720,6 +853,9 @@ def _run_check(args: argparse.Namespace) -> int:
         guard_output(args.output, effective_config_path(args, target))
     for reference in references:
         guard_output(args.output, reference.path)
+
+    if args.all_sheets:
+        return check_all_sheets(targets, args, references, reference_load)
 
     if len(targets) == 1:
         config = resolve_config(args, targets[0])

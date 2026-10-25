@@ -5,6 +5,12 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 11 optional Excel workbook-wide inspection: `check --all-sheets` and
+  `profile --all-sheets` inspect every worksheet, including hidden sheets.
+  Report each sheet separately in text, JSON and HTML; propagate unprocessable
+  sheets as exit code 2 without discarding results from readable sheets.
+  Preserve single-sheet defaults and read-only formula safety. Requires OpenPyXL.
+
 - Batch 10 impact extensions: compare AVG, MIN and MAX before and after
   medium-confidence repair, show numeric-row counts and distinguish unavailable
   aggregates from zero; keep existing SUM/GROUP BY flags and default behavior.

@@ -323,13 +323,28 @@ Positive `max_rows` values bound row ingestion. Zero and negative values are rej
 
 ### 7.3 Excel
 
-Excel support is provided through the optional OpenPyXL dependency. Sift reads one worksheet at a time and reports unexamined sheets. Excel-specific checks include:
+Excel support is provided through the optional OpenPyXL dependency. By
+default, Sift reads the first worksheet or the one chosen by `--sheet`, and
+reports unexamined sheets. `check --all-sheets` instead inspects every worksheet,
+including hidden sheets, using the same checks and per-worksheet formula scan.
+`profile --all-sheets` describes every worksheet separately. These modes are
+read-only; `fix`, `init`, `diff` and `impact` retain single-sheet semantics.
+Excel-specific checks include:
 
 - preamble rows above a detected header;
 - partial Excel date typing;
 - broken formula results;
 - original formula cells in the selected sheet (a repair blocker even with `--force`);
-- unread sheets, including explicitly selected-sheet operations.
+- unread sheets in the default/selected-sheet modes (`--all-sheets` removes
+  that note because every sheet is inspected).
+
+An empty or unreadable sheet is reported as a failed worksheet and yields
+exit code 2 in `check --all-sheets`, rather than silently being skipped. JSON
+reports include each workbook's path and separate `sheet` identity. A directory
+can mix workbooks with CSV/Parquet sources, which remain single units. Sheet
+names are escaped in HTML and sanitized for terminal display. `--sheet` and
+`--all-sheets` are mutually exclusive. Opening each worksheet separately can
+be slow for large workbooks; this is not streaming workbook-wide analysis.
 
 A single-column worksheet is treated as valid data rather than being mistaken for a human-readable preamble.
 
@@ -1191,7 +1206,7 @@ The project's own documented limitations include:
 - heuristics cannot recover meaning that the file itself does not contain;
 - column-name semantics are English-oriented;
 - number parsing covers dot/comma conventions but not every international grouping style;
-- Excel reads one sheet at a time and reports the others rather than recursively checking every sheet;
+- Excel reads one sheet by default; workbook-wide `check`/`profile --all-sheets` require explicit opt-in and process worksheets independently;
 - old binary `.xls` is unsupported;
 - cross-file relationships must be declared explicitly;
 - optional format support depends on OpenPyXL/PyArrow;

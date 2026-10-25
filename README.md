@@ -218,6 +218,35 @@ info    unread-sheets  file
         checked: 'Notes'
 ```
 
+### Check every Excel worksheet
+
+By default, `check` and `profile` read the first worksheet (or one selected with
+`--sheet`). To inspect **every worksheet** in `.xlsx`/`.xlsm` files, including
+hidden sheets, opt in to workbook-wide analysis:
+
+```bash
+sift-lint check orders.xlsx --all-sheets
+sift-lint check orders.xlsx --all-sheets --format json --output report.json
+sift-lint profile orders.xlsx --all-sheets
+sift-lint check data/ --all-sheets --fail-on warning
+```
+
+`check --all-sheets` reports each worksheet independently, identifying the
+original workbook path and its sheet name in JSON (`files[].file` and
+`files[].sheet`). Other formats in a mixed directory are checked once. An
+unreadable or empty sheet is listed under `unreadable` and makes the command
+exit with code 2; findings on any readable sheet still affect the normal
+`--fail-on` threshold. Reports do not include the usual `unread-sheets` note
+when every sheet was requested. `profile --all-sheets` likewise emits a
+separate section per sheet and returns code 2 if any sheet cannot be read.
+
+This is **read-only**. `fix`, `init`, `impact` and `diff` still operate on one
+worksheet at a time: use `--sheet NAME` with them. Formula-safety protection
+remains in place for each selected worksheet. `--all-sheets` and `--sheet`
+cannot be combined on a `check` or `profile` command. Workbook-wide checking
+opens each worksheet separately, so large workbooks can take more time and
+memory. Excel support requires `sift-lint[excel]`.
+
 ### A folder at a time
 
 `sift-lint check` takes several paths, or a directory it will search:
@@ -281,7 +310,7 @@ Three design decisions worth the words:
 
 - **Numbers are edited as text, never round-tripped through `float()`.** Reformatting would change how many decimals the file had. The parse is used only to confirm the edit didn't change the value.
 - **`--log` records every changed cell and deleted duplicate row** with source-line provenance and the responsible rule. The log includes a SHA-256 fingerprint of the input for verification against the retained original. Privacy redaction and CSV normalization mean it is **not** a standalone, byte-for-byte reversible patch. A cleaned file you cannot verify against the original is just a different unverified file.
-- **`fix` refuses unsafe rewrites by default.** Ragged rows get padded or truncated on read, so rewriting could destroy data. Formula-like CSV values (`=`, `+`, `-`, or `@`, excluding ordinary signed numbers) are detected even in mostly numeric columns, including after leading whitespace/newlines. Affected columns remain unchanged and normal writes are refused; `--force` can accept *existing* CSV risks but cannot create a new formula risk. Excel `.xlsx`/`.xlsm` formula cells in the selected sheet block `fix` even with `--force`, because exporting their cached values can silently lose formulas or blank cells. `--dry-run` explains refusals without writing. Other Excel sheets are not exported or checked.
+- **`fix` refuses unsafe rewrites by default.** Ragged rows get padded or truncated on read, so rewriting could destroy data. Formula-like CSV values (`=`, `+`, `-`, or `@`, excluding ordinary signed numbers) are detected even in mostly numeric columns, including after leading whitespace/newlines. Affected columns remain unchanged and normal writes are refused; `--force` can accept *existing* CSV risks but cannot create a new formula risk. Excel `.xlsx`/`.xlsm` formula cells in the selected sheet block `fix` even with `--force`, because exporting their cached values can silently lose formulas or blank cells. `--dry-run` explains refusals without writing. Other Excel sheets are not exported or checked by `fix`; use `check --all-sheets` for read-only inspection of every sheet.
 
 Running `fix` twice changes nothing the second time. Also a test.
 
@@ -519,7 +548,7 @@ limit. Values and profiles remain in memory, and memory usage may be many times
 larger than the input file. See the [bounded performance observations](docs/FINAL_REVIEW.md)
 and measure representative data before deploying large jobs.
 
-Heuristics, not proofs. Sift can tell you a date column is undecidable; it cannot tell you which reading is right when the file contains no evidence either way — that lives in a system it can't see, which is exactly why `fix` refuses the case rather than guessing. Raw CSV byte diagnostics are streamed and `--max-rows` stops row ingestion early, but the retained rows and their profiles are still held in memory; Sift has no validated maximum input size yet, and warehouse-scale data has not been tested. Column-name heuristics (`quantity` implies non-negative) are English-only, and number parsing covers the comma and dot conventions but not space-grouped forms like `1 234,56`. Excel support reads one sheet at a time and names the others rather than checking them, and the old binary `.xls` format is not supported at all. Cross-file reference checks are explicit command-line relationships rather than an inferred schema; each relationship must be declared with `--references`.
+Heuristics, not proofs. Sift can tell you a date column is undecidable; it cannot tell you which reading is right when the file contains no evidence either way — that lives in a system it can't see, which is exactly why `fix` refuses the case rather than guessing. Raw CSV byte diagnostics are streamed and `--max-rows` stops row ingestion early, but the retained rows and their profiles are still held in memory; Sift has no validated maximum input size yet, and warehouse-scale data has not been tested. Column-name heuristics (`quantity` implies non-negative) are English-only, and number parsing covers the comma and dot conventions but not space-grouped forms like `1 234,56`. Excel checks the first sheet by default; `check --all-sheets` explicitly inspects all worksheets, and the old binary `.xls` format is not supported at all. Cross-file reference checks are explicit command-line relationships rather than an inferred schema; each relationship must be declared with `--references`.
 
 ## Measuring accuracy
 
