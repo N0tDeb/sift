@@ -468,7 +468,7 @@ def check_decimal_convention(table: Table, config: Config) -> list[Finding]:
     findings = []
     for column in table.columns:
         profile = column.profile
-        if profile.kind != NUMERIC or not profile.numbers:
+        if profile.kind != NUMERIC:
             continue
         reading = infer_number_convention(profile)
         examples = _samples(

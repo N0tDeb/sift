@@ -24,6 +24,7 @@ from math import isfinite
 from .config import Config
 from .inference import is_blank, parse_number
 from .loading import Table
+from .profiling import infer_number_convention
 from .repair import MEDIUM, plan_repairs
 from .text import fmt_number, plural, terminal_safe
 
@@ -94,6 +95,21 @@ def _values(table: Table, name: str) -> list[str]:
     return list(column.values)
 
 
+def _require_unambiguous_measure(table: Table, name: str | None) -> None:
+    """Do not display a precise-looking sum for an undecidable locale."""
+    if name is None:
+        return
+    column = table.by_key(name)
+    if column is None:
+        raise ImpactError(f"No column named {name!r} in {table.path}.")
+    reading = infer_number_convention(column.profile)
+    if reading.label in ("undecidable", "conflicting"):
+        raise ImpactError(
+            f"Cannot compute SUM({name}): numeric convention is "
+            f"{reading.label}. {reading.reason}"
+        )
+
+
 def _coerce(values: list[str]) -> tuple[list[float], int]:
     """What a typed loader keeps. `float()` is deliberately strict here: it is
     exactly as strict as the loader whose behaviour we are predicting, so
@@ -133,6 +149,7 @@ def sum_impact(
     *,
     repaired_rows: list[list[str]] | None = None,
 ) -> SumImpact:
+    _require_unambiguous_measure(table, column)
     raw = _values(table, column)
     rows = repaired_rows if repaired_rows is not None else prepare_repaired_rows(table, config)
     repaired = _repaired_values(table, rows, column)
@@ -203,6 +220,7 @@ def group_impact(
     *,
     repaired_rows: list[list[str]] | None = None,
 ) -> GroupImpact:
+    _require_unambiguous_measure(table, measure)
     raw = _values(table, column)
     rows = repaired_rows if repaired_rows is not None else prepare_repaired_rows(table, config)
     repaired = _repaired_values(table, rows, column)
@@ -255,6 +273,7 @@ def duplicate_impact(
     *,
     repaired_rows: list[list[str]] | None = None,
 ) -> DuplicateImpact:
+    _require_unambiguous_measure(table, measure)
     rows = list(zip(*[column.values for column in table.columns], strict=True))
     counts = Counter(rows)
     extra_indexes = []

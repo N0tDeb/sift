@@ -59,7 +59,7 @@ class LoadError(Exception):
 
 def _sniff_delimiter(sample: str, override: str | None) -> str:
     if override is not None:
-        if len(override) != 1 or override in "\r\n\0":
+        if len(override) != 1 or override in "\r\n\0\"":
             raise LoadError("delimiter must be one non-newline character")
         return override
     try:
@@ -67,6 +67,49 @@ def _sniff_delimiter(sample: str, override: str | None) -> str:
     except csv.Error:
         # Sniffer gives up on single-column files; comma is the safe default.
         return ","
+
+
+def _validated_lines(handle, delimiter: str):
+    """Stream physical lines while rejecting quotes that csv.reader overlooks.
+
+    The standard CSV reader is permissive with a quote in an unquoted field;
+    that can change record boundaries when the file is rewritten.  This small
+    lexical check follows CSV's start / unquoted / quoted / after-quote states
+    across physical lines.  It preserves properly quoted multiline cells.
+    """
+    state = "start"
+    for line_no, line in enumerate(handle, start=1):
+        for char in line:
+            if state == "quoted":
+                if char == '"':
+                    state = "after_quote"
+            elif state == "after_quote":
+                if char == '"':
+                    state = "quoted"  # doubled literal quote
+                elif char == delimiter:
+                    state = "start"
+                elif char in "\r\n":
+                    state = "start"
+                else:
+                    raise LoadError(
+                        f"Malformed CSV quoting at physical line {line_no}: "
+                        "text after a closing quote."
+                    )
+            elif state == "start":
+                if char == '"':
+                    state = "quoted"
+                elif char not in (delimiter, "\r", "\n"):
+                    state = "unquoted"
+            elif char == '"':
+                raise LoadError(
+                    f"Malformed CSV quoting at physical line {line_no}: "
+                    "quote in an unquoted field."
+                )
+            elif char == delimiter or char in "\r\n":
+                state = "start"
+        yield line
+    if state == "quoted":
+        raise LoadError("Malformed CSV quoting: unterminated quoted field at end of file.")
 
 
 def _scan_bytes(path: Path) -> tuple[list[Finding], str]:
@@ -195,11 +238,19 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
         sample = handle.read(64 * 1024)
         handle.seek(0)
         sep = _sniff_delimiter(sample, delimiter)
-        reader = csv.reader(handle, delimiter=sep)
+        reader = csv.reader(_validated_lines(handle, sep), delimiter=sep, strict=True)
         try:
             header = next(reader)
         except StopIteration:
             raise LoadError(f"File has no header row: {path}") from None
+        except csv.Error as exc:
+            raise LoadError(f"Malformed CSV header in {path.name}: {exc}") from exc
+
+        # A newline, an all-blank heading or a delimiter-only heading does
+        # not describe usable data.  Other blank column names remain visible
+        # to existing schema checks rather than silently disappearing.
+        if not header or not any(name.strip() for name in header):
+            raise LoadError(f"File has no usable header row: {path}")
 
         width = len(header)
         rows: list[list[str]] = []

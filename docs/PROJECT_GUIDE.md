@@ -356,7 +356,7 @@ The number parser considers English and European separator conventions. Importan
 - conflicting conventions;
 - separator forms that remain undecidable.
 
-This distinction is important because `1.234` may represent roughly one point two or one thousand two hundred thirty-four depending on convention, while `1.234,56` provides stronger locale evidence.
+This distinction is important because `1.234` may represent roughly one point two or one thousand two hundred thirty-four depending on convention, while `1.234,56` provides stronger locale evidence. A grouping-shaped value alone is not sufficient proof: Sift blocks automated number conversion and numeric aggregates when no decisive evidence exists.
 
 ### Date evidence
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from .config import Config
 from .findings import Finding, Severity
-from .loading import Table
+from .loading import LoadError, Table
 from .profiling import BOOLEAN, CATEGORICAL, EMPTY, NUMERIC
 from .text import fmt_number, plural
 
@@ -19,6 +19,14 @@ MEDIAN_SHIFT = 0.25
 
 
 def compare(baseline: Table, current: Table, config: Config) -> list[Finding]:
+    # A header-only baseline cannot establish a meaningful expected row count,
+    # null rate, category distribution or numeric range.  Treat it as a bad
+    # input rather than declaring a changed file "clean".
+    if baseline.n_rows == 0:
+        raise LoadError(
+            f"Baseline {baseline.path} contains no data rows; "
+            "choose a populated known-good baseline."
+        )
     findings: list[Finding] = []
 
     old_names = [c.name for c in baseline.columns]

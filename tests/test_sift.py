@@ -510,16 +510,16 @@ def test_high_confidence_fixes_only_the_mechanical_things(tmp_path):
         tmp_path,
         """\
         id,region,total
-        1,"North ","$1,200"
-        2,north,"$980"
-        3,N/A,"$1,050"
+        1,"North ","$1,200.00"
+        2,north,"$980.00"
+        3,N/A,"$1,050.00"
         """,
     )
     rules = {change.rule for change in plan.changes}
     assert rules == {"trim-whitespace", "blank-null", "plain-number"}
     # 'north' is left alone: choosing a canonical spelling is a judgement call.
     assert rows[1][1] == "north"
-    assert rows[0][2] == "1200"
+    assert rows[0][2] == "1200.00"
     assert rows[2][1] == ""
 
 
@@ -1417,10 +1417,9 @@ def test_european_numbers_are_reported(tmp_path):
     assert "european-numbers" in codes(findings)
 
 
-def test_english_currency_is_not_mistaken_for_european(tmp_path):
-    # "$1,200" is 1.2 under European convention, so it is ambiguous in
-    # isolation — but three digits after a separator is what grouping looks
-    # like, and this must not become a false error on ordinary money.
+def test_grouped_currency_without_decisive_evidence_remains_ambiguous(tmp_path):
+    # "$1,200" may represent either 1.2 or 1200. The grouping-shaped
+    # spelling is suggestive but not sufficient for a certain conversion.
     findings = lint(
         tmp_path,
         """\
@@ -1430,7 +1429,7 @@ def test_english_currency_is_not_mistaken_for_european(tmp_path):
         3,"$1,050"
         """,
     )
-    assert "ambiguous-decimal-separator" not in codes(findings)
+    assert "ambiguous-decimal-separator" in codes(findings)
     assert "european-numbers" not in codes(findings)
 
 

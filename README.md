@@ -271,7 +271,7 @@ warning european-numbers  betrag
         of a thousand, without erroring.
 ```
 
-The evidence comes in two strengths, and the distinction matters. `1.234,56` can *only* be read the European way — one such value settles the whole column. `1,200` is weaker: it is grouped thousands in English and `1.2` in European, and neither is impossible. Treating weak evidence as decisive would flag every ordinary `$1,200` as a locale error, so grouping only counts when nothing stronger exists. A column with strong evidence in both directions is reported as an error rather than resolved — it holds two formats mixed together, and one of them is off by a thousand.
+The evidence comes in two strengths, and the distinction matters. `1.234,56` can *only* be read the European way — one such value settles the whole column. `1,200` is weaker: it could mean grouped thousands in English or `1.2` in European, and neither is impossible. **Grouping-shaped values alone are not decisive evidence**: Sift reports ambiguity, refuses automatic numeric normalization, and withholds untrustworthy numeric summaries and `impact` totals. A column with decisive evidence in both directions is reported as conflicting rather than resolved.
 
 `sift-lint fix` normalises European numbers to `1234.56` when the convention is settled, and refuses when it is not:
 
@@ -332,7 +332,7 @@ Committing a baseline file next to the data turns `diff` into a regression test 
 
 **Sensitive data** — columns holding email addresses, phone numbers, payment card numbers or IBANs, and columns *named* like sensitive fields. Once a column is classified as sensitive, other findings for that column also suppress source-value details, and repair audit logs redact its before/after values.
 
-**Safety** — values beginning `=`, `+` or `@`, which a spreadsheet executes as a formula rather than displaying; NUL bytes; files with a header and no rows.
+**Safety** — formula-like CSV values, NUL bytes, malformed quoting, and files without a usable header. Header-only files can be inspected but cannot serve as drift baselines.
 
 **Values** — case and whitespace variants of the same label, near-duplicate labels (`Acme Corp` / `Acme Crop`, gated on frequency skew — a rare misspelling of a spelling most rows agree on — so evenly-used categories like `vvs1`/`vvs2` or `male`/`female` are left alone, and identifier-shaped columns are excluded entirely), stray and non-breaking whitespace, mojibake from a bad encoding round-trip, outliers by modified z-score, negative values in columns named like quantities.
 

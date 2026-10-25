@@ -227,10 +227,9 @@ def evidence_from(readings: dict[str, Number]) -> str | None:
         return "neutral"
 
     # "1,200" reads as grouped thousands in English and as 1.2 in European.
-    # Neither is impossible, but three digits after a separator is what
-    # grouping looks like and a three-decimal price is not. That is weaker
-    # evidence than a value only one convention can read, so it is kept
-    # separate and only used when nothing decisive exists.
+    # Neither is impossible. Keep this grouping-shaped evidence separate
+    # from decisive values; without something decisive in the same column,
+    # converting either interpretation would be a guess.
     if "thousands" in english.flags and "thousands" not in european.flags:
         return "group-en"
     if "thousands" in european.flags and "thousands" not in english.flags:

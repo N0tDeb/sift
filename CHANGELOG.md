@@ -5,6 +5,12 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 2 data correctness: reject malformed CSV quoting and files without a
+  usable header, including in `fix --force`; require populated drift baselines.
+  Treat grouping-shaped numeric values as ambiguous unless the column contains
+  decisive locale evidence, preventing speculative repairs, misleading numeric
+  statistics and `impact` sums.
+
 - Batch 1 formula safeguards: recognize risky formula-like cells regardless of
   inferred column type, including newline and non-breaking-space prefixes;
   preserve ordinary signed numbers. Refuse newly introduced formula-like CSV
