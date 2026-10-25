@@ -1,21 +1,15 @@
-# Sift — README demo
+# Sift CLI demonstration for the project README.
 #
-# Records the GIF at the top of the README. Install the recorder first:
+# Generate on GitHub: Actions > Generate Sift VHS Demo > Run workflow.
+# Or, with VHS and Sift installed locally, run: vhs demo/demo.tape
+# Output: demo/sift.gif
 #
-#     brew install vhs          # or: go install github.com/charmbracelet/vhs@latest
-#     pip install -e .          # from the repo root, so `sift` is on PATH
-#     vhs demo/demo.tape        # writes demo/sift.gif
+# Three operations on demo/orders.csv:
+#   check:  seven findings, including ambiguous dates.
+#   impact: direct coercion produces -1,998; supported repairs give 10,149.75.
+#   fix:   13 cell changes; the ambiguous dates are left for review.
 #
-# The recording has three beats and no narration, because the output argues
-# better than a caption would:
-#
-#   1. check   — the breadth. Seven findings in one screen, an error at the top.
-#   2. impact  — the money shot. This file's SUM returns MINUS 1,998.
-#   3. fix     — the judgement. Thirteen cells repaired, one thing refused.
-#
-# Timing is deliberate. The pauses after each command are long enough to read
-# the first two lines of output and no longer; anyone who wants the detail can
-# read the README. Total runtime is about 25 seconds.
+# Keep commands and figures synchronized with the current CLI and demo README.
 
 Output demo/sift.gif
 
@@ -28,14 +22,13 @@ Set Theme "Catppuccin Mocha"
 Set TypingSpeed 45ms
 Set PlaybackSpeed 1.0
 
-# Start on a clean prompt with no repo clutter in view.
 Hide
 Type "cd demo && clear" Enter
 Show
 
 Sleep 900ms
 
-# --- Beat 1: what is wrong with this file -----------------------------------
+# Check the file and display findings.
 Type "sift-lint check orders.csv --key order_id"
 Sleep 600ms
 Enter
@@ -44,9 +37,7 @@ Sleep 5s
 Type "clear" Enter
 Sleep 400ms
 
-# --- Beat 2: how wrong is my number -----------------------------------------
-# The line that does the work: "coerced  -1,998" against "after sift-lint fix
-# 10,149.75". A negative total from a file of positive prices.
+# Compare raw and repaired aggregates.
 Type "sift-lint impact orders.csv --sum total --group-by region"
 Sleep 600ms
 Enter
@@ -55,9 +46,7 @@ Sleep 6s
 Type "clear" Enter
 Sleep 400ms
 
-# --- Beat 3: fix what can be derived, refuse the rest -----------------------
-# The refusal is the point. The dates are genuinely undecidable, so Sift
-# hands them back rather than guessing.
+# Apply supported repairs and leave ambiguous dates unchanged.
 Type "sift-lint fix orders.csv --min-confidence medium --output clean.csv"
 Sleep 600ms
 Enter

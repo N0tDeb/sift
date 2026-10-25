@@ -1,76 +1,51 @@
-# Recording the demo
+# CLI demonstration
 
-The GIF at the top of the README is generated, not hand-captured, so it can be
-re-recorded whenever the output changes.
+The animated demonstration in the [project README](../README.md) is generated
+from [`demo.tape`](demo.tape) using [VHS](https://github.com/charmbracelet/vhs).
+It shows three operations on the ten-row [`orders.csv`](orders.csv) fixture:
 
-## With VHS (recommended — produces the GIF)
+1. **Check** detects seven findings, including ambiguous dates, inconsistent
+   region labels, text-formatted amounts and sentinel values.
+2. **Impact** shows that direct numeric coercion yields `-1,998` because eight
+   currency-formatted values are skipped. Sift estimates `10,149.75` after
+   supported repairs. The estimated change is `12,147.75`; group labels also
+   need normalization.
+3. **Fix** writes `clean.csv`, applies 13 cell changes and leaves the ambiguous
+   date column unchanged rather than guessing its interpretation.
 
-[VHS](https://github.com/charmbracelet/vhs) reads a script and renders a
-terminal session to a GIF. Nothing is captured live, so a typo in the take
-does not mean starting over.
+## Regenerate in GitHub Actions (recommended)
 
-```bash
-brew install vhs          # or: go install github.com/charmbracelet/vhs@latest
-pip install -e .          # from the repo root, so `sift` is on PATH
-vhs demo/demo.tape        # writes demo/sift.gif
-```
+No local tools need to be installed. From the repository's **Actions** tab:
 
-Then reference it as the first thing in the README, above the prose:
+1. Select [Generate Sift VHS Demo](../.github/workflows/vhs-demo.yml).
+2. Choose **Run workflow** on the intended source branch.
+3. When `generate-gif` succeeds, download the `sift-vhs-demo` artifact from
+   the workflow-run page and extract `sift.gif`.
+4. Inspect the GIF, compare its output with the current CLI and check its size.
+5. On a new documentation branch, replace `demo/sift.gif`, commit the change,
+   and open a pull request. Confirm normal CI passes before merging.
 
-```markdown
-![Sift finding problems in a CSV](demo/sift.gif)
-```
+The workflow only generates and uploads an artifact; it does **not** commit the
+GIF, update `main`, or publish a release. The recording is about 30 seconds
+long and should remain comfortably below 3 MB for README readability.
 
-A GIF is heavier than a link, so keep it under about 3 MB. If it comes out
-larger, drop `Set FontSize` to 13 and `Set Width` to 1000 rather than cutting a
-beat — the third beat, where Sift refuses to guess, is the one worth keeping.
+## Local generation (optional)
 
-## With asciinema (lighter, but a link rather than an inline image)
-
-asciinema records real keystrokes and uploads a playable, copy-pasteable
-recording. Text rather than pixels, so it stays sharp and weighs nothing — but
-it cannot be embedded directly in a README the way a GIF can.
-
-```bash
-pip install asciinema
-cd demo
-asciinema rec sift.cast --cols 100 --rows 42 --idle-time-limit 1.5
-```
-
-Then run the same three commands, pausing a beat after each:
+If you already have [VHS](https://github.com/charmbracelet/vhs) installed, run
+these commands from the repository root in a disposable environment:
 
 ```bash
-sift-lint check orders.csv --key order_id
-clear
-sift-lint impact orders.csv --sum total --group-by region
-clear
-sift-lint fix orders.csv --min-confidence medium --output clean.csv
-exit
+python -m pip install -e .
+vhs demo/demo.tape
 ```
 
-`--idle-time-limit 1.5` trims your thinking time out of the playback, so you
-can take as long as you like between commands. Upload with `asciinema upload
-sift.cast` and put the badge it gives you near the top of the README.
+VHS saves the result as `demo/sift.gif`. The CLI executable is `sift-lint`,
+not `sift`. The recording may also create `demo/clean.csv`, which is ignored
+by Git. You do not need this local setup to use the GitHub Actions workflow.
 
-## Why these three commands
+## Keeping the demonstration accurate
 
-The demo file is small on purpose — ten rows, five columns — because the point
-is not that Sift finds a lot, it is that what it finds would otherwise reach
-production silently.
-
-1. **`check`** shows the breadth in one screen: dates that read two ways, a
-   region spelled three ways, prices that are text, and `-999` sitting in a
-   money column.
-2. **`impact`** is the beat that lands. `SUM(total)` over this file returns
-   **-1,998** — the only two values `float()` can read are the placeholders.
-   Every real price is `$1,299.00` and gets dropped. No exception is raised.
-3. **`fix`** repairs thirteen cells and then refuses the date column, because
-   nothing in the file says whether `04/03/2024` is March or April. The
-   refusal is the most important frame in the recording: it is the difference
-   between a cleaner and a tool you can trust with your data.
-
-## Keeping it honest
-
-Re-record after any change to output formatting. A GIF showing output the tool
-no longer produces is worse than no GIF, and it is exactly the kind of drift
-the tests in this repo exist to prevent everywhere else.
+The counts and totals above describe the bundled fixture, not general product
+performance. Re-record whenever the CLI's shown output or the fixture changes.
+Update the script and this document alongside the GIF if the commands or their
+results change. The GIF is a demonstration, not a substitute for tests.
