@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from sift_lint import diff as public_diff, lint
+from sift_lint import diff as public_diff
+from sift_lint import lint
 from sift_lint.checks import run_checks
 from sift_lint.cli import main
 from sift_lint.config import Config
