@@ -72,12 +72,23 @@ A test asserts this file lists exactly the codes the source can emit, so it cann
 
 | Code | Severity | Meaning |
 | --- | --- | --- |
-| `formula-injection` | warning | Values starting with `=`, `+` or `@`, which a spreadsheet executes as a formula rather than showing as text. |
+| `formula-injection` | warning | Formula-like values starting with `=`, `+`, `-` or `@` after optional whitespace (genuine signed numbers excluded); detected in all column types. |
 | `mojibake` | error | Text mangled by a bad encoding round-trip. Not repairable; re-export the source. |
 | `label-variants` | warning | The same category spelled several ways by case or spacing. |
 | `whitespace` | warning | Stray, doubled or non-breaking whitespace inside values. |
 | `near-duplicate-labels` | info | A rare misspelling of a spelling the rest of the column agrees on. |
 | `high-cardinality` | info | A text column that is almost entirely unique — free text or an identifier, not a category. |
+
+## Explicit column policies (configured under `[sift.columns."name"]`)
+
+| Code | Severity | Meaning |
+| --- | --- | --- |
+| `required-column-missing` | error | A column marked `required = true` is absent. |
+| `required-value-missing` | error | A required column contains blank or disguised-null values. |
+| `value-not-allowed` | error | A non-null value is outside the configured exact `allowed_values`. |
+| `range-unverifiable` | error | A numeric range rule cannot be safely evaluated because the locale is ambiguous or conflicting. |
+| `range-nonnumeric` | error | A value cannot be parsed as a number for a configured range rule. |
+| `value-out-of-range` | error | A numeric value exceeds the explicit minimum or maximum. |
 
 ## Keys and references
 
@@ -106,6 +117,7 @@ Nothing here is a defect — the file is fine. These say *this file contains per
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `formula-error` | error | `#REF!`, `#N/A` and similar exported as literal text. |
+| `excel-formulas` | warning | The selected worksheet contains Excel formula cells; `fix` refuses values-only CSV conversion, even with `--force`. |
 | `partial-excel-dates` | error | Some cells are real dates and the rest are text that looks identical on screen. |
 | `preamble-rows` | warning | Title or spacer rows above the header, written for a human reader. |
 | `loose-schema` | warning | A Parquet column declared as string whose values are all numbers. |

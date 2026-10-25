@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from functools import lru_cache
+from math import isfinite
 
 # Strings people type when they mean "no value". A loader reads them as text,
 # so the column silently stops being numeric and the nulls stop being null.
@@ -159,6 +160,8 @@ def _parse_with(value: str, convention: str) -> Number | None:
         flags.add("currency")
 
     number = float(raw.replace(thousands, "").replace(decimal, "."))
+    if not isfinite(number):
+        return None  # Overflowed float is not a usable numeric value.
     if match["pct"]:
         flags.add("percent")
     if match["sign"] == "-":
@@ -224,10 +227,9 @@ def evidence_from(readings: dict[str, Number]) -> str | None:
         return "neutral"
 
     # "1,200" reads as grouped thousands in English and as 1.2 in European.
-    # Neither is impossible, but three digits after a separator is what
-    # grouping looks like and a three-decimal price is not. That is weaker
-    # evidence than a value only one convention can read, so it is kept
-    # separate and only used when nothing decisive exists.
+    # Neither is impossible. Keep this grouping-shaped evidence separate
+    # from decisive values; without something decisive in the same column,
+    # converting either interpretation would be a guess.
     if "thousands" in english.flags and "thousands" not in european.flags:
         return "group-en"
     if "thousands" in european.flags and "thousands" not in english.flags:
@@ -342,11 +344,17 @@ def has_mojibake(value: str) -> bool:
 def is_formula_injection(value: str) -> bool:
     """Whether a spreadsheet may execute this value as a formula.
 
-    Leading horizontal whitespace is ignored because spreadsheet imports may
-    trim it before deciding whether a cell is a formula. A leading minus is
-    deliberately excluded so ordinary negative numbers remain ordinary data.
+    Inspect *all* leading whitespace, including newlines and non-breaking
+    spaces. Legitimate signed numbers are exempt independent of the containing
+    column's inferred type; a mostly-numeric column can still contain a formula.
+    Non-numeric leading minus signs are risky too.
     """
-    return value.lstrip("\t\r ")[:1] in {"=", "+", "@"}
+    text = value.lstrip()
+    if not text or text[0] not in {"=", "+", "-", "@"}:
+        return False
+    if text[0] in {"+", "-"} and parse_number_any(text):
+        return False
+    return True
 
 
 def whitespace_problem(value: str) -> str | None:

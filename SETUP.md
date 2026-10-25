@@ -42,8 +42,9 @@ repository access except for the narrowly scoped OIDC publishing job.
 Dependabot proposes updates to pinned Actions, which must be reviewed before
 merge. See [.github/workflows/README.md](.github/workflows/README.md).
 
-The optional terminal demo is in [demo/](demo/). It is not required for a
-release.
+See [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the detailed
+release-readiness checks. The optional terminal demo is in [demo/](demo/).
+It is not required for a release.
 
 ## Release preparation (maintainers)
 

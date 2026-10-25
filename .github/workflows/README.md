@@ -3,7 +3,8 @@
 `ci.yml` runs on every push to `main` and every pull request.
 
 **test** — runs Ruff, the full test suite and the recall benchmark on Ubuntu
-with Python 3.11–3.14, plus Windows and macOS with Python 3.14. The format
+with Python 3.11–3.14, plus Windows and macOS with Python 3.14. Test jobs
+also run `pip check` on the resolved development dependencies. The format
 extras are installed for every test job. Python 3.15 will be added when
 `actions/setup-python` provides it for the selected runner.
 
@@ -12,6 +13,12 @@ macOS. Both archives undergo strict metadata checks and are installed
 separately in clean virtual environments. Each installed package is tested
 outside the repository for version consistency, imports, the CLI, a real CSV
 check and `pip check`.
+
+**GitHub annotations** — `check --format github` emits escaped GitHub workflow
+commands. The CI data-gate smoke-tests the format by writing it to a temporary
+file, rather than posting noisy example-data warnings to every pull request.
+For a real data-quality gate, use `sift-lint check data/ --format github
+--fail-on warning` as a CI step. Do not echo unchecked raw input values.
 
 **data-gate** — runs Sift against this repository's own example files, the way
 it is meant to be used in a pipeline: `check` on a folder, `diff` against a

@@ -5,16 +5,17 @@ good: an automatic cleaner that guesses wrong is worse than no cleaner, because
 it destroys the evidence that anything was ever wrong.
 
 So the rule here is that a repair must be *derivable from the file itself*.
-Stripping `$` from `$1,200` is derivable — the number was always 1200 and the
-formatting was decoration. Choosing between day-first and month-first when
+Stripping a currency marker is safe only when the column also establishes its
+number convention. A value like `$1,200` alone can be ambiguous. Choosing
+between day-first and month-first when
 nothing in the column proves either is not derivable, and Sift will not do it
 at any confidence setting. Refusals are output, not silence: the report lists
 what was left alone and why, so the person knows exactly which problems they
 still own.
 
-Every changed cell is written to an audit log with the rule responsible. The
-before/after values are preserved except for columns Sift identifies as
-sensitive, where the serialized log records an explicit redaction marker. A
+Each changed cell and deleted duplicate row can be written to an optional
+audit log with its responsible rule. Before/after values are preserved except
+for columns identified as sensitive, whose values are redacted. A
 cleaned file you cannot account for against the original is just a different
 unverified file.
 """
@@ -22,6 +23,8 @@ unverified file.
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import shutil
 import textwrap
 from collections import Counter, defaultdict
@@ -41,6 +44,7 @@ from .inference import (
     parse_number,
 )
 from .loading import Column, Table
+from .output import atomic_text_writer
 from .profiling import (
     CATEGORICAL,
     DATE,
@@ -70,6 +74,7 @@ class Change:
     after: str
     rule: str
     confidence: str
+    column_key: str | None = None  # unique identity when headers repeat
 
 
 @dataclass
@@ -82,10 +87,22 @@ class Refusal:
 
 
 @dataclass
+class DroppedRow:
+    """One deleted source record and the earlier record it duplicated."""
+
+    line: int
+    duplicate_of_line: int
+    original_values: tuple[str, ...]
+    matched_after_normalization: bool
+
+
+@dataclass
 class RepairPlan:
     changes: list[Change] = field(default_factory=list)
     refusals: list[Refusal] = field(default_factory=list)
     dropped_lines: list[int] = field(default_factory=list)
+    dropped_rows: list[DroppedRow] = field(default_factory=list)
+    private_columns: set[str] = field(default_factory=set)
 
     def by_rule(self) -> dict[str, list[Change]]:
         grouped: dict[str, list[Change]] = defaultdict(list)
@@ -94,8 +111,10 @@ class RepairPlan:
         return dict(grouped)
 
 
-def _line(row: int) -> int:
-    return row + 2  # row 0 is the line after the header
+def _line(row: int, column: Column | None = None) -> int:
+    if column is not None and row < len(column.source_lines):
+        return column.source_lines[row]
+    return row + 2  # Fallback for formats without physical CSV row locations.
 
 
 def plain_number(raw: str, convention: str = "en") -> str | None:
@@ -139,7 +158,7 @@ def rule_trim_whitespace(column: Column, values: list[str], plan: RepairPlan) ->
         cleaned = value.replace("\u00a0", " ").strip()
         if cleaned != value:
             plan.changes.append(
-                Change(_line(row), column.name, value, cleaned, "trim-whitespace", HIGH)
+                Change(_line(row, column), column.name, value, cleaned, "trim-whitespace", HIGH)
             )
             values[row] = cleaned
 
@@ -149,7 +168,7 @@ def rule_collapse_spaces(column: Column, values: list[str], plan: RepairPlan) ->
         cleaned = " ".join(value.split())
         if cleaned != value:
             plan.changes.append(
-                Change(_line(row), column.name, value, cleaned, "collapse-spaces", MEDIUM)
+                Change(_line(row, column), column.name, value, cleaned, "collapse-spaces", MEDIUM)
             )
             values[row] = cleaned
 
@@ -158,7 +177,7 @@ def rule_blank_null(column: Column, values: list[str], plan: RepairPlan) -> None
     for row, value in enumerate(values):
         if is_disguised_null(value):
             plan.changes.append(
-                Change(_line(row), column.name, value, "", "blank-null", HIGH)
+                Change(_line(row, column), column.name, value, "", "blank-null", HIGH)
             )
             values[row] = ""
 
@@ -196,7 +215,7 @@ def rule_plain_number(column: Column, values: list[str], plan: RepairPlan) -> No
         cleaned = plain_number(value, convention)
         if cleaned is not None:
             plan.changes.append(
-                Change(_line(row), column.name, value, cleaned, "plain-number", HIGH)
+                Change(_line(row, column), column.name, value, cleaned, "plain-number", HIGH)
             )
             values[row] = cleaned
 
@@ -230,7 +249,7 @@ def rule_iso_date(column: Column, values: list[str], plan: RepairPlan) -> None:
         iso = chosen.strftime("%Y-%m-%d")
         if iso != value:
             plan.changes.append(
-                Change(_line(row), column.name, value, iso, "iso-date", confidence)
+                Change(_line(row, column), column.name, value, iso, "iso-date", confidence)
             )
             values[row] = iso
 
@@ -265,7 +284,7 @@ def rule_canonical_label(column: Column, values: list[str], plan: RepairPlan) ->
         if value in canonical:
             plan.changes.append(
                 Change(
-                    _line(row),
+                    _line(row, column),
                     column.name,
                     value,
                     canonical[value],
@@ -290,7 +309,7 @@ def rule_sentinel_null(column: Column, values: list[str], plan: RepairPlan) -> N
         parsed = parse_number(value)
         if parsed is not None and parsed.value in targets:
             plan.changes.append(
-                Change(_line(row), column.name, value, "", "sentinel-null", MEDIUM)
+                Change(_line(row, column), column.name, value, "", "sentinel-null", MEDIUM)
             )
             values[row] = ""
 
@@ -349,19 +368,20 @@ def plan_repairs(
     floor = RANK[min_confidence]
     plan = RepairPlan()
     grid = [list(column.values) for column in table.columns]
+    # Privacy flags also indicate columns whose exact bytes can carry semantic
+    # meaning (e.g., passwords with leading spaces). These are read-only by
+    # default, irrespective of the requested repair confidence.
+    from .checks import sensitive_columns
+
+    private = sensitive_columns(table, config)
+    plan.private_columns = set(private)
 
     for index, column in enumerate(table.columns):
-        # A repaired file must not make spreadsheet-formula content easier to
-        # execute. The checker deliberately treats leading whitespace before
-        # =, + or @ as risky because spreadsheet imports may trim it. Rewriting
-        # such a column (especially trimming it) can turn a suspicious value
-        # into a directly executable-looking cell, so leave the whole column
-        # unchanged and make the refusal explicit. Numeric/date columns retain
-        # their existing signed-value behaviour and are not formula findings.
-        risky = (
-            column.profile.kind not in (NUMERIC, DATE)
-            and any(is_formula_injection(value) for value in grid[index])
-        )
+        # Protect even predominantly numeric or date columns. A lone formula
+        # among numeric values must not become executable after whitespace
+        # cleanup or normalization. The value-level detector exempts genuine
+        # signed numbers without trusting column-wide type inference.
+        risky = any(is_formula_injection(value) for value in grid[index])
         if risky:
             # Preserve the existing non-mutating refusal checks for this column
             # even though no repair rule is allowed to rewrite it.
@@ -370,13 +390,35 @@ def plan_repairs(
                 Refusal(
                     column.name,
                     "formula-injection",
-                    "This column contains a value beginning with =, + or @, "
-                    "which spreadsheet software may execute as a formula. Sift "
+                    "This column contains a formula-like value (=, +, -, or @, "
+                    "possibly after whitespace), which spreadsheet software "
+                    "may execute as a formula. Sift "
                     "will not rewrite the column because trimming or normalising "
                     "it could make that content easier to execute. Neutralise "
                     "the formula deliberately, then run fix again.",
                 )
             )
+            continue
+
+        if (
+            column.name in private
+            or config.column_policy(column.name, column.key).role == "identifier"
+        ):
+            rule_refuse_unfixable(column, grid[index], plan)
+            candidate = RepairPlan()
+            working = list(grid[index])
+            for rule in RULES[1:]:
+                rule(column, working, candidate)
+            if any(RANK[change.confidence] >= floor for change in candidate.changes):
+                plan.refusals.append(
+                    Refusal(
+                        column.name,
+                        "sensitive-value-preserved",
+                        "Sensitive or identifier column values are preserved exactly. "
+                        "Review them manually; automatic normalization may "
+                        "change their meaning.",
+                    )
+                )
             continue
 
         for rule in RULES:
@@ -391,37 +433,91 @@ def plan_repairs(
                 del plan.changes[mark:]
             else:
                 grid[index] = working
+                for change in proposed:
+                    change.column_key = column.key
 
     rows = [list(values) for values in zip(*grid, strict=True)] if grid else []
 
     if drop_duplicates:
-        seen: set[tuple[str, ...]] = set()
+        # Retain source-row identity even after normalizations create a
+        # duplicate. Audit entries are recorded for the rows actually removed,
+        # not merely for the first row of a duplicate group.
+        seen: dict[tuple[str, ...], int] = {}
         kept_rows = []
         for row_index, row in enumerate(rows):
             key = tuple(row)
+            original = tuple(column.values[row_index] for column in table.columns)
+            line = (
+                table.source_lines[row_index] if row_index < len(table.source_lines)
+                else _line(row_index)
+            )
             if key in seen:
-                plan.dropped_lines.append(_line(row_index))
+                first_index = seen[key]
+                first_original = tuple(
+                    column.values[first_index] for column in table.columns
+                )
+                first_line = (
+                    table.source_lines[first_index]
+                    if first_index < len(table.source_lines) else _line(first_index)
+                )
+                plan.dropped_lines.append(line)
+                plan.dropped_rows.append(
+                    DroppedRow(line, first_line, original, original != first_original)
+                )
                 continue
-            seen.add(key)
+            seen[key] = row_index
             kept_rows.append(row)
         rows = kept_rows
     return plan, rows
 
 
 def write_csv(path: Path, header: list[str], rows: list[list[str]], delimiter: str = ",") -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    with atomic_text_writer(path, newline="") as handle:
         writer = csv.writer(handle, delimiter=delimiter, lineterminator="\n")
         writer.writerow(header)
         writer.writerows(rows)
 
 
+def _safe_log_value(value: str) -> str:
+    """Avoid turning a data-change log into a spreadsheet formula payload.
+
+    `json:` is an explicit, reversible encoding for potentially executable
+    values; that prefix is itself escaped to keep decoding unambiguous.
+    """
+    if is_formula_injection(value) or value.startswith("json:"):
+        return "json:" + json.dumps(value, ensure_ascii=False)
+    return value
+
+
+def _source_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def write_log(
-    path: Path, plan: RepairPlan, sensitive_columns: set[str] | None = None
+    path: Path,
+    plan: RepairPlan,
+    sensitive_columns: set[str] | None = None,
+    *,
+    source_path: Path | None = None,
+    header: list[str] | None = None,
 ) -> None:
-    sensitive = sensitive_columns or set()
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    """Write cell changes and row deletions with the original 6-column header.
+
+    Source and row deletion entries have distinct rule names. To reconstruct
+    source values, retain the original file; redacted log values are deliberate.
+    """
+    sensitive = plan.private_columns | set(sensitive_columns or ())
+    with atomic_text_writer(path, newline="") as handle:
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(["line", "column", "rule", "confidence", "before", "after"])
+        if source_path is not None:
+            writer.writerow([
+                0, "[source]", "source-sha256", "high", _source_digest(source_path), ""
+            ])
         for change in plan.changes:
             before = change.before
             after = change.after
@@ -431,16 +527,171 @@ def write_log(
             writer.writerow(
                 [
                     change.line,
-                    change.column,
+                    _safe_log_value(change.column_key or change.column),
                     change.rule,
                     change.confidence,
-                    before,
-                    after,
+                    _safe_log_value(before),
+                    _safe_log_value(after),
                 ]
             )
+        for dropped in plan.dropped_rows:
+            # Positional values are important: duplicate column names cannot
+            # safely be represented by a dict keyed by header text.
+            values = [
+                REDACTED_SENSITIVE_VALUE
+                if (header is None and sensitive)
+                or (header is not None and index < len(header) and header[index] in sensitive)
+                else value
+                for index, value in enumerate(dropped.original_values)
+            ]
+            snapshot = json.dumps(
+                {
+                    "values": values,
+                    "duplicate_of_line": dropped.duplicate_of_line,
+                    "matched_after_normalization": dropped.matched_after_normalization,
+                },
+                ensure_ascii=False,
+            )
+            writer.writerow([
+                dropped.line, "[row]", "drop-duplicate-row", "high", snapshot, "",
+            ])
 
 
-def render_plan(table: Table, plan: RepairPlan, destination: str) -> str:
+
+# Reasons are deliberately constant and contain no source data. A preview must
+# remain useful even when showing raw cell values would disclose private data.
+REPAIR_EXPLANATIONS = {
+    "trim-whitespace": "Remove leading/trailing whitespace and replace non-breaking spaces.",
+    "collapse-spaces": "Collapse runs of whitespace in non-sensitive text (medium confidence).",
+    "blank-null": "Replace recognized textual missing-value markers with an empty cell.",
+    "plain-number": "Normalize a numeric representation only when its convention is supported.",
+    "iso-date": "Rewrite dates to ISO 8601 when date order has sufficient evidence.",
+    "canonical-label": "Unify labels that normalize to the same category (medium confidence).",
+    "sentinel-null": "Remove a repeated numeric placeholder likely representing missing data.",
+    "drop-duplicate-row": "Keep the earliest occurrence of each identical repaired row.",
+}
+
+
+def render_plan_json(
+    table: Table,
+    plan: RepairPlan,
+    destination: str,
+    sensitive: set[str] | None = None,
+    *,
+    include_values: bool = False,
+    blockers: list[str] | None = None,
+    accepted_risks: list[str] | None = None,
+    min_confidence: str = HIGH,
+    drop_duplicates: bool = False,
+    partial_read: bool = False,
+    output_selected: bool = False,
+) -> str:
+    """Render a non-mutating, stable JSON repair preview.
+
+    Cell contents are withheld by default. An explicit opt-in reveals only
+    values from columns *not* classified as sensitive. Deleted-row contents
+    are never included: one row can contain several distinct sensitive fields.
+    """
+    from .checks import sensitive_columns as detect_sensitive_columns
+
+    private = set(sensitive or ()) | plan.private_columns
+    private.update(detect_sensitive_columns(table))
+    issues = list(dict.fromkeys(blockers or []))
+    grouped = plan.by_rule()
+    rule_counts = {rule: len(changes) for rule, changes in sorted(grouped.items())}
+    if plan.dropped_rows:
+        rule_counts["drop-duplicate-row"] = len(plan.dropped_rows)
+
+    changes = []
+    for change in plan.changes:
+        record = {
+            "line": change.line,
+            "column": change.column,
+            "column_key": change.column_key or change.column,
+            "rule": change.rule,
+            "confidence": change.confidence,
+            "explanation": REPAIR_EXPLANATIONS.get(change.rule, "Review the proposed change."),
+        }
+        if include_values:
+            hidden = change.column in private or (change.column_key or "") in private
+            record["before"] = REDACTED_SENSITIVE_VALUE if hidden else change.before
+            record["after"] = REDACTED_SENSITIVE_VALUE if hidden else change.after
+        changes.append(record)
+
+    refusals = []
+    for refusal in plan.refusals:
+        refusals.append({
+            "column": refusal.column,
+            "rule": refusal.rule,
+            "reason": (
+                "Value details withheld because the column appears sensitive."
+                if refusal.column in private else refusal.reason
+            ),
+        })
+
+    payload = {
+        "schema_version": 1,
+        "command": "fix",
+        "mode": "preview",
+        "source": str(table.path),
+        "destination": destination,
+        "output_selected": output_selected,
+        "rows_read": table.n_rows,
+        "partial_read": partial_read,
+        "min_confidence": min_confidence,
+        "drop_duplicates": drop_duplicates,
+        "values_included": include_values,
+        "write_permitted": not issues and not partial_read,
+        "write_blockers": issues + (["partial-read"] if partial_read else []),
+        "accepted_risks": list(dict.fromkeys(accepted_risks or [])),
+        "summary": {
+            "cells_changed": len(plan.changes),
+            "rows_dropped": len(plan.dropped_rows),
+            "refusals": len(plan.refusals),
+            "by_rule": rule_counts,
+        },
+        "changes": changes,
+        "dropped_rows": [
+            {
+                "line": dropped.line,
+                "duplicate_of_line": dropped.duplicate_of_line,
+                "matched_after_normalization": dropped.matched_after_normalization,
+                "rule": "drop-duplicate-row",
+                "explanation": REPAIR_EXPLANATIONS["drop-duplicate-row"],
+            }
+            for dropped in plan.dropped_rows
+        ],
+        "refusals": refusals,
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+def render_rule_explanations(plan: RepairPlan) -> str:
+    """Human-readable, data-free rule descriptions for the current plan."""
+    rules = sorted(set(plan.by_rule()) | ({"drop-duplicate-row"} if plan.dropped_rows else set()))
+    if not rules:
+        return "No automatic changes proposed; see the refusals above if any."
+    lines = ["Why these changes?"]
+    for rule in rules:
+        lines.append(f"  {rule}: {REPAIR_EXPLANATIONS.get(rule, 'Review the proposed change.')}")
+    lines.append("High-confidence means evidence supports the rule, not that it is infallible.")
+    lines.append("Medium-confidence changes should receive additional human review.")
+    return "\n".join(lines)
+
+
+def render_plan(
+    table: Table,
+    plan: RepairPlan,
+    destination: str,
+    sensitive_columns: set[str] | None = None,
+) -> str:
+    if sensitive_columns is None:
+        # The standalone formatter should not leak secrets when callers omit
+        # the optional privacy argument. The CLI passes this explicitly.
+        from .checks import sensitive_columns as detect_sensitive_columns
+
+        sensitive_columns = detect_sensitive_columns(table)
+    sensitive_columns = set(sensitive_columns) | plan.private_columns
     lines = [f"{terminal_safe(table.path)} to {terminal_safe(destination)}", ""]
     grouped = plan.by_rule()
     if not grouped and not plan.dropped_lines:
@@ -464,8 +715,13 @@ def render_plan(table: Table, plan: RepairPlan, destination: str) -> str:
         for refusal in plan.refusals:
             where = terminal_safe(refusal.column or "file")
             lines.append(f"  {where} [{terminal_safe(refusal.rule)}]")
+            reason = (
+                "Value details withheld because the column appears sensitive."
+                if refusal.column in (sensitive_columns or set())
+                else refusal.reason
+            )
             lines.extend(
-                textwrap.wrap(terminal_safe(refusal.reason), width=width - 4,
+                textwrap.wrap(terminal_safe(reason), width=width - 4,
                               initial_indent="    ",
                               subsequent_indent="    ")
             )

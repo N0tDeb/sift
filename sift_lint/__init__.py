@@ -13,11 +13,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .config import Config
+    from .config import ColumnPolicy, Config
     from .findings import Finding
 
-__version__ = "1.0.0"
-__all__ = ["lint", "diff", "Finding", "Severity", "Config", "__version__"]
+__version__ = "1.1.0"
+__all__ = ["lint", "diff", "Finding", "Severity", "Config", "ColumnPolicy", "__version__"]
 
 
 def lint(path: str | Path, config: Config | None = None, **kwargs) -> list[Finding]:
@@ -42,8 +42,10 @@ def diff(
 
     old = load_any(Path(baseline), **kwargs)
     new = load_any(Path(current), **kwargs)
+    settings = config or _Config()
     return redact_sensitive_findings(
-        compare(old, new, config or _Config()), sensitive_columns(new)
+        compare(old, new, settings),
+        sensitive_columns(old, settings) | sensitive_columns(new, settings),
     )
 
 
@@ -52,8 +54,8 @@ def __getattr__(name: str):
         from . import findings as module
 
         return getattr(module, name)
-    if name == "Config":
-        from .config import Config
+    if name in ("Config", "ColumnPolicy"):
+        from . import config as module
 
-        return Config
+        return getattr(module, name)
     raise AttributeError(name)

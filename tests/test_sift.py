@@ -510,16 +510,16 @@ def test_high_confidence_fixes_only_the_mechanical_things(tmp_path):
         tmp_path,
         """\
         id,region,total
-        1,"North ","$1,200"
-        2,north,"$980"
-        3,N/A,"$1,050"
+        1,"North ","$1,200.00"
+        2,north,"$980.00"
+        3,N/A,"$1,050.00"
         """,
     )
     rules = {change.rule for change in plan.changes}
     assert rules == {"trim-whitespace", "blank-null", "plain-number"}
     # 'north' is left alone: choosing a canonical spelling is a judgement call.
     assert rows[1][1] == "north"
-    assert rows[0][2] == "1200"
+    assert rows[0][2] == "1200.00"
     assert rows[2][1] == ""
 
 
@@ -1128,11 +1128,18 @@ def test_excel_max_rows_stops_worksheet_iteration_early(tmp_path, monkeypatch):
 
     class Worksheet:
         def iter_rows(self, values_only=False):
-            assert values_only is True
+            if not values_only:
+                # The independent formula-safety scan deliberately examines
+                # the complete selected worksheet, including beyond the
+                # bounded data read. Its cells contain only metadata here.
+                from types import SimpleNamespace
+                for _ in range(4):
+                    yield (SimpleNamespace(data_type="s"),)
+                return
             yield ("Quarterly Export", None)
             yield ("id", "value")
             yield ("1", "one")
-            raise AssertionError("Excel reader consumed rows past max_rows")
+            raise AssertionError("Excel cached-value reader exceeded max_rows")
 
     class Workbook:
         sheetnames = ["Orders"]
@@ -1295,6 +1302,19 @@ def test_excel_partial_dates_are_an_error(tmp_path):
     assert "partial-excel-dates" in {f.code for f in table.file_findings}
 
 
+def test_excel_formulas_are_detected_even_without_cached_results(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    source = tmp_path / "formulas.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["id", "total"])
+    sheet.append([1, "=2+3"])
+    workbook.save(source)
+    workbook.close()
+    table = load_any(source)
+    assert "excel-formulas" in {finding.code for finding in table.file_findings}
+
+
 def test_excel_formula_errors_are_reported(tmp_path):
     path = _write_xlsx(
         tmp_path / "f.xlsx",
@@ -1397,10 +1417,9 @@ def test_european_numbers_are_reported(tmp_path):
     assert "european-numbers" in codes(findings)
 
 
-def test_english_currency_is_not_mistaken_for_european(tmp_path):
-    # "$1,200" is 1.2 under European convention, so it is ambiguous in
-    # isolation — but three digits after a separator is what grouping looks
-    # like, and this must not become a false error on ordinary money.
+def test_grouped_currency_without_decisive_evidence_remains_ambiguous(tmp_path):
+    # "$1,200" may represent either 1.2 or 1200. The grouping-shaped
+    # spelling is suggestive but not sufficient for a certain conversion.
     findings = lint(
         tmp_path,
         """\
@@ -1410,7 +1429,7 @@ def test_english_currency_is_not_mistaken_for_european(tmp_path):
         3,"$1,050"
         """,
     )
-    assert "ambiguous-decimal-separator" not in codes(findings)
+    assert "ambiguous-decimal-separator" in codes(findings)
     assert "european-numbers" not in codes(findings)
 
 
@@ -2423,7 +2442,9 @@ def test_every_finding_code_has_a_test_or_a_benchmark_case():
     source = "\n".join(p.read_text(encoding="utf-8") for p in (root / "sift_lint").glob("*.py"))
     emitted = set(re.findall(r'Finding\(\s*\n?\s*"([a-z0-9-]+)"', source))
 
-    tests = Path(__file__).read_text(encoding="utf-8")
+    tests = "\n".join(
+        p.read_text(encoding="utf-8") for p in (root / "tests").glob("test_*.py")
+    )
     bench = "\n".join(
         p.read_text(encoding="utf-8") for p in (root / "bench").glob("*.py")
     )
@@ -2510,8 +2531,9 @@ def test_fix_audit_log_redacts_sensitive_values_but_keeps_other_values(tmp_path)
     assert "alice@example.com" not in log
     assert "bob@example.com" not in log
     assert "carol@example.com" not in log
-    assert "[redacted sensitive value]" in log
+    assert "[redacted sensitive value]" not in log  # no sensitive edits are performed
     assert " North " in log  # non-sensitive audit values remain exact
+    assert " alice@example.com " in output.read_text(encoding="utf-8")
 
 
 def test_public_diff_redacts_sensitive_category_examples(tmp_path):

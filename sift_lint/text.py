@@ -7,6 +7,7 @@ careful, and a linter that looks careless does not get trusted.
 
 from __future__ import annotations
 
+import math
 import unicodedata
 
 _BIDI_FORMAT_CONTROLS = {
@@ -28,6 +29,8 @@ _BIDI_FORMAT_CONTROLS = {
 def fmt_number(value: float) -> str:
     """Readable, never scientific notation — the reader is going to search the
     file for this value, so it has to look like it does in the file."""
+    if not math.isfinite(value):
+        return "NaN" if math.isnan(value) else ("infinity" if value > 0 else "-infinity")
     if value == int(value) and abs(value) < 1e15:
         return f"{int(value):,}"
     return f"{value:,.2f}"

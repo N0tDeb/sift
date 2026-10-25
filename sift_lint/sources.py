@@ -32,7 +32,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from .findings import Finding, Severity
-from .loading import Column, LoadError, Table, validate_max_rows
+from .loading import Column, LoadError, Table, column_keys, validate_max_rows
 from .loading import load as load_csv
 from .profiling import profile_column
 from .text import plural
@@ -83,15 +83,8 @@ def _text(value: object) -> str:
 
 
 def _build(path: Path, header: list[str], rows: list[list[str]], findings: list[Finding]) -> Table:
-    seen: dict[str, int] = {}
     columns: list[Column] = []
-    for index, name in enumerate(header):
-        key = name
-        if name in seen:
-            seen[name] += 1
-            key = f"{name}#{seen[name]}"
-        else:
-            seen[name] = 0
+    for index, (name, key) in enumerate(zip(header, column_keys(header), strict=True)):
         values = [row[index] for row in rows]
         columns.append(
             Column(
@@ -111,6 +104,32 @@ def _build(path: Path, header: list[str], rows: list[list[str]], findings: list[
     )
 
 
+def excel_sheet_names(path: Path) -> list[str]:
+    """List every worksheet, including hidden sheets, without loading its cells.
+
+    Workbook-wide inspection must not quietly skip a sheet the user could
+    overlook in the Excel interface. OpenPyXL is an optional dependency.
+    """
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise LoadError(
+            "Reading .xlsx needs openpyxl: pip install 'sift-lint[excel]'"
+        ) from exc
+
+    try:
+        workbook = load_workbook(path, read_only=True, data_only=False)
+    except Exception as exc:
+        raise LoadError(f"{path.name} could not be read as a workbook ({exc}).") from exc
+    try:
+        names = list(workbook.sheetnames)
+    finally:
+        workbook.close()
+    if not names:
+        raise LoadError(f"Workbook has no worksheets: {path}")
+    return names
+
+
 def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None) -> Table:
     validate_max_rows(max_rows)
     try:
@@ -123,6 +142,13 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
     findings: list[Finding] = []
     try:
         workbook = load_workbook(path, read_only=True, data_only=True)
+        # Data-only mode can silently yield None for a formula with no cached
+        # result. The formula-view is needed to detect possible data loss.
+        try:
+            formula_workbook = load_workbook(path, read_only=True, data_only=False)
+        except Exception:
+            workbook.close()
+            raise
     except Exception as exc:  # openpyxl raises several unrelated types
         raise LoadError(
             f"{path.name} could not be read as a workbook ({exc}). If it is "
@@ -135,20 +161,43 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
         if sheet is not None:
             if sheet not in names:
                 raise LoadError(f"No sheet named {sheet!r}. Sheets: {', '.join(names)}")
-            worksheet = workbook[sheet]
+            selected_name = sheet
         else:
-            worksheet = workbook[names[0]]
-            if len(names) > 1:
-                findings.append(
-                    Finding(
-                        "unread-sheets",
-                        Severity.INFO,
-                        f"Read sheet {names[0]!r}. This workbook has "
-                        f"{plural(len(names) - 1, 'other sheet')} that nothing checked: "
-                        + ", ".join(repr(n) for n in names[1:]),
-                        detail={"sheets": names},
-                    )
+            selected_name = names[0]
+        worksheet = workbook[selected_name]
+        if len(names) > 1:
+            remaining = [name for name in names if name != selected_name]
+            findings.append(
+                Finding(
+                    "unread-sheets",
+                    Severity.INFO,
+                    f"Read sheet {selected_name!r}. This workbook has "
+                    f"{plural(len(remaining), 'other sheet')} not inspected: "
+                    + ", ".join(repr(name) for name in remaining)
+                    + ". Formulas on those sheets are not checked or exported.",
+                    detail={"sheets": names},
                 )
+            )
+
+        # Inspect the entire selected sheet, including rows outside a
+        # --max-rows sample and any preamble/header cells. A bounded preview
+        # must not incorrectly claim that a later formula does not exist.
+        formula_count = sum(
+            1 for cells in formula_workbook[selected_name].iter_rows()
+            for cell in cells if cell.data_type == "f"
+        )
+        if formula_count:
+            findings.append(
+                Finding(
+                    "excel-formulas",
+                    Severity.WARNING,
+                    f"Selected Excel sheet {selected_name!r} contains "
+                    f"{plural(formula_count, 'formula')}. CSV cannot preserve "
+                    "workbook formulas or reliably preserve their calculated "
+                    "values; fix refuses this sheet.",
+                    detail={"sheet": selected_name, "count": formula_count},
+                )
+            )
 
         row_iter = iter(worksheet.iter_rows(values_only=True))
 
@@ -190,6 +239,7 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
                 break
     finally:
         workbook.close()
+        formula_workbook.close()
 
     width = len(raw_header)
     header = [_text(cell).strip() or f"column_{i + 1}" for i, cell in enumerate(raw_header)]
@@ -284,7 +334,9 @@ def load_parquet(path: Path, max_rows: int | None = None) -> Table:
     # column whose every value is a number is a schema that stopped matching
     # its data — the exact thing a typed format is supposed to prevent.
     for index, name in enumerate(header):
-        declared = str(schema.field(name).type)
+        # Field names are not unique in every valid Parquet schema. Resolve by
+        # position to match the column extracted with data.column(index).
+        declared = str(schema.field(index).type)
         profile = built.columns[index].profile
         if declared.startswith("string") and profile.kind == "numeric" and profile.n_present:
             findings.append(

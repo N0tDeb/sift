@@ -1,6 +1,6 @@
 # Sift - Architecture, Design, Testing & Operations Guide
 
-> **Project version:** `1.0.0`
+> **Project version:** `1.1.0`
 > **Distribution and CLI:** `sift-lint` · **Python import:** `sift_lint`
 > This guide describes the project source; public distribution is handled by the release workflow.
 
@@ -8,7 +8,7 @@ Sift is a Python linter for tabular data files. Its focus is not whether a file 
 
 This guide documents the architecture, command-line behavior, source modules, design decisions, safety properties, testing strategy, performance choices, extension points, and operational expectations of the definitive project state.
 
-**Repository navigation:** [README](../README.md) · [finding codes](../CODES.md) · [benchmark](../BENCHMARK.md) · [real-data notes](../REAL-DATA.md) · [setup](../SETUP.md) · [changelog](../CHANGELOG.md) · [contributing](../CONTRIBUTING.md) · [security](../SECURITY.md) · [tests](../tests/test_sift.py) · [CI workflow](../.github/workflows/ci.yml)
+**Repository navigation:** [README](../README.md) · [finding codes](../CODES.md) · [benchmark](../BENCHMARK.md) · [final review & performance](FINAL_REVIEW.md) · [real-data notes](../REAL-DATA.md) · [setup](../SETUP.md) · [changelog](../CHANGELOG.md) · [contributing](../CONTRIBUTING.md) · [security](../SECURITY.md) · [tests](../tests/test_sift.py) · [CI workflow](../.github/workflows/ci.yml)
 
 ## Contents
 
@@ -79,19 +79,19 @@ The definitive project state has the following properties:
 
 | Property | Definitive state |
 |---|---|
-| Project version | `1.0.0` |
+| Project version | `1.1.0` |
 | Distribution name | `sift-lint` |
 | CLI | `sift-lint` |
 | Python requirement | `>=3.11` |
 | Mandatory runtime dependencies | None |
 | Excel extra | `openpyxl>=3.1` |
-| Parquet extra | `pyarrow>=14.0` |
+| Parquet extra | `pyarrow>=14.0.1` |
 | Build backend | Hatchling |
 | License | MIT |
-| Python source modules | 16 |
-| Registered check functions | 19 |
-| Stable documented finding codes | 63 |
-| CLI subcommands | 6 |
+| Python source modules | 19 |
+| Registered check functions | 20 |
+| Stable documented finding codes | 70 |
+| CLI subcommands | 7 |
 | Verification | Run the latest GitHub Actions CI matrix |
 | Known-corruption benchmark | 28/28 detected |
 | Clean-control benchmark noise | 0 findings |
@@ -136,6 +136,7 @@ The architecture is intentionally module-oriented rather than framework-oriented
 | [`sift_lint/findings.py`](../sift_lint/findings.py) | `Severity`, `Finding`, sorting and sensitive-column redaction |
 | [`sift_lint/config.py`](../sift_lint/config.py) | `sift.toml` discovery, validation, thresholds and silencing |
 | [`sift_lint/reporting.py`](../sift_lint/reporting.py) | Text, JSON and HTML rendering |
+| [`sift_lint/github_annotations.py`](../sift_lint/github_annotations.py) | Opt-in escaped GitHub Actions annotations for checked findings |
 | [`sift_lint/repair.py`](../sift_lint/repair.py) | Repair planning, refusals, CSV writing and audit logs |
 | [`sift_lint/drift.py`](../sift_lint/drift.py) | Baseline-versus-current comparison |
 | [`sift_lint/impact.py`](../sift_lint/impact.py) | Aggregate blast-radius calculations |
@@ -160,7 +161,8 @@ sift/
 │   └── workflows/
 │       ├── README.md
 │       ├── ci.yml
-│       └── release.yml
+│       ├── release.yml
+│       └── vhs-demo.yml
 ├── bench/
 │   ├── __init__.py
 │   ├── corruptions.py
@@ -168,9 +170,13 @@ sift/
 ├── demo/
 │   ├── README.md
 │   ├── demo.tape
-│   └── orders.csv
+│   ├── orders.csv
+│   └── sift.gif
 ├── docs/
-│   └── PROJECT_GUIDE.md
+│   ├── FINAL_REVIEW.md
+│   ├── PROJECT_GUIDE.md
+│   ├── RELEASE_CHECKLIST.md
+│   └── html-report-preview.png
 ├── examples/
 │   ├── customers.csv
 │   ├── orders.parquet
@@ -180,9 +186,9 @@ sift/
 │   ├── orders_messy.csv
 │   └── orders_with_refs.csv
 ├── sift_lint/
-│   └── ...16 Python modules...
+│   └── ...19 Python modules...
 ├── tests/
-│   └── test_sift.py
+│   └── test_*.py (15 regression modules)
 ├── .gitattributes
 ├── .gitignore
 ├── BENCHMARK.md
@@ -239,7 +245,8 @@ Each `Column` records:
 
 - original zero-based index;
 - original name;
-- lookup key;
+- lookup key; duplicate names are suffixed without colliding with literal
+  names such as `v#1` elsewhere in the same source header;
 - retained string values;
 - a `ColumnProfile`.
 
@@ -322,12 +329,28 @@ Positive `max_rows` values bound row ingestion. Zero and negative values are rej
 
 ### 7.3 Excel
 
-Excel support is provided through the optional OpenPyXL dependency. Sift reads one worksheet at a time and reports unexamined sheets. Excel-specific checks include:
+Excel support is provided through the optional OpenPyXL dependency. By
+default, Sift reads the first worksheet or the one chosen by `--sheet`, and
+reports unexamined sheets. `check --all-sheets` instead inspects every worksheet,
+including hidden sheets, using the same checks and per-worksheet formula scan.
+`profile --all-sheets` describes every worksheet separately. These modes are
+read-only; `fix`, `init`, `diff` and `impact` retain single-sheet semantics.
+Excel-specific checks include:
 
 - preamble rows above a detected header;
 - partial Excel date typing;
 - broken formula results;
-- unread sheets.
+- original formula cells in the selected sheet (a repair blocker even with `--force`);
+- unread sheets in the default/selected-sheet modes (`--all-sheets` removes
+  that note because every sheet is inspected).
+
+An empty or unreadable sheet is reported as a failed worksheet and yields
+exit code 2 in `check --all-sheets`, rather than silently being skipped. JSON
+reports include each workbook's path and separate `sheet` identity. A directory
+can mix workbooks with CSV/Parquet sources, which remain single units. Sheet
+names are escaped in HTML and sanitized for terminal display. `--sheet` and
+`--all-sheets` are mutually exclusive. Opening each worksheet separately can
+be slow for large workbooks; this is not streaming workbook-wide analysis.
 
 A single-column worksheet is treated as valid data rather than being mistaken for a human-readable preamble.
 
@@ -355,7 +378,7 @@ The number parser considers English and European separator conventions. Importan
 - conflicting conventions;
 - separator forms that remain undecidable.
 
-This distinction is important because `1.234` may represent roughly one point two or one thousand two hundred thirty-four depending on convention, while `1.234,56` provides stronger locale evidence.
+This distinction is important because `1.234` may represent roughly one point two or one thousand two hundred thirty-four depending on convention, while `1.234,56` provides stronger locale evidence. A grouping-shaped value alone is not sufficient proof: Sift blocks automated number conversion and numeric aggregates when no decisive evidence exists.
 
 ### Date evidence
 
@@ -378,7 +401,7 @@ Profiles track enough evidence for later checks to decide whether a column is nu
 
 ## 9. Checks and findings
 
-Sift has **19 registered check functions** and **63 stable documented finding codes**.
+Sift has **20 registered check functions** and **70 stable documented finding codes**.
 
 The codes are grouped in [`CODES.md`](../CODES.md) as follows:
 
@@ -389,11 +412,12 @@ The codes are grouped in [`CODES.md`](../CODES.md) as follows:
 | Dates | 7 |
 | Missing data | 4 |
 | Values | 6 |
+| Explicit column policies | 6 |
 | Keys and references | 8 |
 | Sensitive data | 2 |
-| Excel and Parquet | 5 |
+| Excel and Parquet | 6 |
 | Drift (`sift-lint diff`) | 10 |
-| **Total** | **63** |
+| **Total** | **70** |
 
 ### Registered check functions
 
@@ -417,7 +441,8 @@ The check registry covers:
 16. cardinality;
 17. spreadsheet-formula risk;
 18. sensitive data;
-19. encoding/mojibake-style value problems.
+19. encoding/mojibake-style value problems;
+20. opt-in declarative per-column validation policies.
 
 ### Finding collapse
 
@@ -449,6 +474,22 @@ ignore = []
 [sift.ignore_columns]
 ```
 
+### Explicit column policies (opt-in)
+
+Under `[sift.columns."column name"]`, declare an optional semantic `role`:
+`identifier`, `measure`, `category`, `date`, `text`, or `sensitive`.
+Identifier and sensitive roles block automatic cell-value rewriting; sensitive
+also suppresses actual values in diagnostics, including drift and impact output.
+Non-measure roles skip outlier and median-shift statistics, and an explicit
+`measure` can override the usual identifier-name heuristic.
+
+Optional validation fields are `required = true`, an exact/case-sensitive
+`allowed_values = ["..."]` list, and numeric `min_value`/`max_value`.
+Missing columns or required values and invalid enum/range values are errors.
+Sift refuses to guess numeric bounds when a locale is undecidable.
+Rules don't change the parsed data and default configurations behave as before.
+Refer to the full sample in [`README.md`](../README.md).
+
 ### Validation rules
 
 Configuration is intentionally strict. Invalid TOML or semantically invalid settings produce a `ConfigError` rather than silently falling back to defaults. Examples include:
@@ -477,7 +518,7 @@ CLI `--fail-on` overrides the config for that invocation.
 
 ## 11. Command-line interface
 
-Sift exposes six subcommands.
+Sift exposes seven top-level subcommands, including local named-baseline management.
 
 ### `sift-lint check`
 
@@ -490,7 +531,7 @@ Important options:
 - `--key COLUMN`
 - `--delimiter`
 - `--config` / `--no-config`
-- `--format text|json|html`
+- `--format text|json|html|github` (`check` only)
 - `--output`
 - `--fail-on error|warning|info|none`
 - `--ignore CODE`
@@ -575,6 +616,44 @@ The CLI guards against report/repair destinations that would overwrite the input
 
 ---
 
+### Structured repair previews and explanations
+
+`fix --dry-run --format json` renders a versioned (`schema_version: 1`),
+non-mutating plan suitable for review or tooling. Per-cell entries contain
+source line, unique column key, rule, confidence and a fixed explanation;
+rows proposed for removal contain line provenance but no original values.
+Refusals, write blockers and accepted risks are listed separately. No source cell values are
+included by default. `--show-values` explicitly opts into before/after values
+in non-sensitive columns; detected sensitive columns stay redacted. Heuristic
+privacy detection can miss unexpected secrets, so opt-in previews still need
+human review before sharing. JSON output requires `--dry-run` to ensure it is
+one valid document rather than a mixture of structured data and post-write
+status text.
+
+`fix --explain` appends descriptions for the repair rules actually proposed
+in a text plan. It does not change which repairs run, the confidence floor,
+refusals or output files. JSON plan rendering is available to Python callers
+through `sift_lint.repair.render_plan_json` as an internal helper.
+
+Preview safety flags describe known content risks, not destination validity or
+cross-file transactional guarantees; a bounded `--max-rows` preview explicitly
+reports that it cannot safely be exported as a complete repaired file.
+
+### GitHub annotation format (Batch 12)
+
+`check --format github` is an opt-in workflow-command reporter. It maps error,
+warning and info to GitHub's `error`, `warning` and `notice` annotations, for
+single files, directories and workbook-wide `--all-sheets` analysis. It reports
+unreadable files and sheets as error annotations while retaining exit status 2.
+Every finding goes through the same redaction path as JSON and text reports;
+raw examples are deliberately excluded. All untrusted path, title and message
+fields have workflow-command separators and terminal control bytes escaped.
+
+Finding-level checks generally refer to a column or a file, not a verified
+physical source line. The GitHub formatter therefore **does not invent line
+numbers** or claim to point at a particular offending row. `diff` does not
+support this format; its existing JSON, HTML and text output is unchanged.
+
 ## 13. Safe repair
 
 Repair is deliberately separated into **planning** and **writing**.
@@ -625,7 +704,14 @@ Number edits are performed as text, not by round-tripping the file through `floa
 
 ### Audit log
 
-When `--log` is requested, each changed cell records the location, before value, after value and rule. Sensitive columns redact before/after values in the audit output.
+When `--log` is requested, each changed cell and removed duplicate row has an
+entry with a source-line location and the responsible rule. The six-column
+CSV includes a `source-sha256` provenance record at line 0. Row removals
+include an original positional-value snapshot, the retained row's source line,
+and whether a duplicate emerged after normalization. Sensitive values are
+redacted, and formula-like audit cells use reversible `json:` encoding.
+The source file must be retained for recovery: the log is not a standalone
+byte-for-byte patch, especially when sensitive values were redacted.
 
 ### Idempotency
 
@@ -639,8 +725,8 @@ The test suite verifies that applying the repair a second time makes no further 
 
 The documented drift codes cover:
 
-- removed columns;
-- added columns;
+- removed columns, including reduced counts of repeated header names;
+- added columns, including additional occurrences of repeated names;
 - reordered columns;
 - type changes;
 - null-rate increases;
@@ -747,13 +833,16 @@ The sensitive-data detector itself does not emit raw examples. More importantly,
 
 If a column appears sensitive, another unrelated finding on that column is not allowed to leak a raw source value through its examples, message or free-form detail. Safe numeric metadata can remain.
 
-This property also reaches repair audit logs and public drift output.
+This also covers repair-refusal summaries, duplicate-row examples without a
+single owning column, audit logs, numeric profile extrema, sensitive group
+labels in `impact`, and public drift output. Detection remains heuristic: the
+system cannot guarantee identification of every confidential field.
 
 ### 18.3 Spreadsheet-formula risk
 
-Values beginning with spreadsheet-executable prefixes such as `=`, `+` or `@` are detected. Repair does not rewrite those columns as if the data were ordinary text.
+Formula-like values starting with `=`, `+`, `-`, or `@` after optional whitespace are detected in **every** column regardless of inferred type; genuine signed numbers are exempt. Formula-like column headings are also checked. Repair does not rewrite hazardous columns, and a final output check rejects newly introduced formula risks even when `--force` is supplied.
 
-By default, `sift-lint fix` refuses to write an output while unresolved rewrite hazards remain. `--dry-run` previews the refusal. `--force` is an explicit acceptance of the unresolved risk and hazardous columns remain preserved rather than silently transformed.
+By default, `sift-lint fix` refuses to write an output while unresolved rewrite hazards remain. `--dry-run` previews the refusal. `--force` accepts certain existing CSV risks and preserves their contents rather than normalizing them. Excel `.xlsx`/`.xlsm` formula cells in the **selected** sheet block CSV repair even with `--force`, because cached values are not guaranteed and the workbook formulas themselves would be lost. Formulas on unrelated sheets do not block conversion of a formula-free selected sheet; those sheets are not exported.
 
 ### 18.4 HTML escaping
 
@@ -789,7 +878,7 @@ The repository's real-data notes record an 18 MB, 126,000-row case dropping from
 
 ### Bounded parsing
 
-`--max-rows` stops row ingestion after the requested positive limit. Excel worksheet iteration and Parquet reads are likewise bounded rather than reading the entire source and slicing afterward.
+`--max-rows` stops data-row ingestion after the requested positive limit. Parquet batches and Excel cached-value ingestion are bounded; Excel's separate formula-safety scan still checks the *entire selected sheet*, including rows outside the sample, to avoid missing formulas that would otherwise be lost during a later conversion.
 
 ### Repair snapshot reuse
 
@@ -801,7 +890,9 @@ Cross-file reference tables are cached within one CLI check command.
 
 ### Memory trade-off
 
-The design intentionally retains values as Python strings so it can reason about exactly what the source contained before typed coercion. That costs memory compared with compact typed arrays.
+The design intentionally retains values as Python strings so it can reason about exactly what the source contained before typed coercion. That costs memory compared with compact typed arrays. The small, bounded
+benchmark in [the final review](FINAL_REVIEW.md) is an observation from one
+Linux environment, not a safe input-size limit or production SLA.
 
 ---
 
@@ -942,7 +1033,7 @@ console script, runs a real `sift-lint check`, and runs `pip check`.
 
 #### Data gate
 
-The data-gate job installs all optional format support and exercises the project as a user would:
+The data-gate job installs all optional format support, smoke-tests GitHub annotations without posting fixture warnings, and exercises the project as a user would:
 
 - check the example directory;
 - compare messy data with the baseline;
@@ -988,6 +1079,21 @@ Loads both sources through common dispatch, compares them, and applies sensitive
 The API is small by design so callers do not need to depend on internal module structure.
 
 ---
+
+### Reliability notes for Batch 4
+
+- `impact` accepts generated keys such as `amount#1` when columns share a
+  display name. The unique loaded column identity is used consistently when
+  reading both original and repaired rows.
+- TOML numeric thresholds must be finite, not `nan` or `inf`; invalid values
+  cause an operational failure rather than silently disabling a check.
+- Single-file output replacement preserves the permission bits of existing
+  regular files, while a newly created output uses private temporary-file
+  defaults. Before `fix` writes repaired data and an audit log, both paths are
+  checked for obvious write failures (such as a missing directory or a
+  directory used as a filename). This is **not** a multi-file transaction:
+  a new disk failure or concurrent filesystem change can still interrupt the
+  second write after the first succeeds.
 
 ## 24. Change-impact guide
 
@@ -1115,11 +1221,13 @@ The project's own documented limitations include:
 
 - it is intended for local tabular files, not warehouse-scale processing;
 - values/profiles are retained in memory even though raw-byte scanning is streamed;
-- files in the tens to hundreds of megabytes are the intended range; gigabyte-scale data is not the target;
+- there is no validated maximum file size yet; representative files must be
+  measured before setting production expectations; warehouse-scale data is
+  outside the current validation scope;
 - heuristics cannot recover meaning that the file itself does not contain;
 - column-name semantics are English-oriented;
 - number parsing covers dot/comma conventions but not every international grouping style;
-- Excel reads one sheet at a time and reports the others rather than recursively checking every sheet;
+- Excel reads one sheet by default; workbook-wide `check`/`profile --all-sheets` require explicit opt-in and process worksheets independently;
 - old binary `.xls` is unsupported;
 - cross-file relationships must be declared explicitly;
 - optional format support depends on OpenPyXL/PyArrow;
@@ -1250,4 +1358,55 @@ Escaping untrusted control and bidirectional formatting characters before embedd
 
 ## Maintenance note
 
-This guide tracks the current Sift development state. Update it alongside public behavior or architecture changes. In particular, keep command options, finding-code counts, CI behavior, optional dependencies, benchmark claims and limitations synchronized with the source and tests.
+See the [maintainer release checklist](RELEASE_CHECKLIST.md) before any merge or publication. This guide tracks the current Sift development state. Update it alongside public behavior or architecture changes. In particular, keep command options, finding-code counts, CI behavior, optional dependencies, benchmark claims and limitations synchronized with the source and tests.
+
+
+## Named local baselines (Batch 9)
+
+`sift-lint baseline save NAME FILE` saves the **exact original file bytes**,
+not inferred profiles, in `.sift/baselines/NAME/`. The manifest records UTC
+creation time, source filename (not its full path), row/column counts, format,
+optional delimiter and worksheet selection, byte length and SHA-256. It never
+stores data examples in the manifest. Snapshots are write-once per name; rerun
+with a different name rather than overwrite a baseline used by CI.
+
+`sift-lint baseline list`, `baseline show NAME`, and `baseline verify NAME`
+inspect metadata and validate the fingerprint. `baseline delete NAME --yes`
+removes that snapshot; omitting `--yes` is an error. Use
+`sift-lint diff NAME CURRENT --saved` to compare after verifying integrity.
+Ordinary path-based `diff BASELINE CURRENT` is unchanged. For alternative
+storage directories, use `--store DIRECTORY` on baseline subcommands and
+`--baseline-store DIRECTORY` with `diff --saved`. Always run these from the
+same working directory if using the default relative path.
+
+The saved data may contain **raw personal information or credentials**.
+`.sift/baselines/` is Git-ignored by default; Git ignoring is not encryption
+or a complete access-control mechanism. Do not publish snapshots. On POSIX
+systems, freshly created snapshot directories/files are restricted to the
+user where supported. Windows access policy depends on filesystem ACLs.
+SHA-256 detects changes to stored data unless an actor can rewrite both the
+manifest and the bytes. It does not establish authenticity or make an unsafe
+source trustworthy. Avoid saving files that are being written concurrently.
+
+Baseline save validates the stored file with Sift's current parser and requires
+at least one data row. Snapshot names are limited to letters, digits, hyphens
+and underscores and do not permit path separators or dots. Config thresholds
+are still read from the **current** file's config during comparison. These
+snapshots do not provide automatic historical trends, a remote registry,
+encryption, or transactional coordination with an external data pipeline.
+
+### Impact analysis extensions (Batch 10)
+
+`impact --avg COLUMN`, `--min COLUMN`, and `--max COLUMN` compare strictly
+coerced input with a medium-confidence repaired snapshot, optionally alongside
+`--sum`. Each result includes numeric row counts; a dataset without numeric
+observations displays `n/a`, not zero. AVG divides by parseable numeric rows,
+not total rows. All numeric impact estimates remain blocked for undecidable or
+conflicting numeric conventions. `--mean` aliases `--avg`.
+
+`GROUP BY` measures affected *absolute* value, not signed net movement: a
+negative transaction and an equal positive one under inconsistent labels both
+count toward exposure. `GroupImpact.total_amount` retains the historical signed
+net sum for API consumers, and `total_magnitude` is the absolute denominator.
+The computed values illustrate ingestion and potential repair impact; they are
+not a promise that Sift's proposed repair is correct for every domain.

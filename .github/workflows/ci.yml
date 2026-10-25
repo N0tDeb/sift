@@ -36,6 +36,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -e ".[dev]"
+      - run: python -m pip check
       - run: ruff check .
       - run: pytest -q
       # Preserve the benchmark's corruption-detection and clean-control gates.
@@ -75,6 +76,12 @@ jobs:
       - run: pip install -e ".[all]"
       - name: Lint the example files
         run: sift-lint check examples/ --fail-on none
+      - name: Smoke-test GitHub annotations (without posting fixture warnings)
+        shell: bash
+        run: |
+          sift-lint check examples/orders_messy.csv --no-config --format github \
+            --fail-on none --output "$RUNNER_TEMP/sift-annotations.txt"
+          python -c "from pathlib import Path; import os; p = Path(os.environ['RUNNER_TEMP']) / 'sift-annotations.txt'; assert '::' in p.read_text()"
       - name: Compare against the baseline
         run: sift-lint diff examples/orders_baseline.csv examples/orders_messy.csv --fail-on none
       - name: Repair what is safely repairable

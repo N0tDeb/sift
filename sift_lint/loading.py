@@ -33,6 +33,7 @@ class Column:
     key: str
     values: list[str]
     profile: ColumnProfile
+    source_lines: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -43,6 +44,7 @@ class Table:
     n_rows: int
     delimiter: str = ","
     file_findings: list[Finding] = field(default_factory=list)
+    source_lines: list[int] = field(default_factory=list)
 
     def by_key(self, key: str) -> Column | None:
         for column in self.columns:
@@ -55,14 +57,85 @@ class LoadError(Exception):
     """The file cannot be read at all — not a finding, a failure."""
 
 
+def column_keys(header: list[str]) -> list[str]:
+    """Assign distinct keys without shadowing real header names.
+
+    A synthetic key such as ``v#1`` must not steal access to a literal
+    ``v#1`` column elsewhere in the file. Reserve every input name before
+    suffixing duplicates, including names appearing later in the header.
+    """
+    reserved = set(header)
+    used: set[str] = set()
+    suffixes: dict[str, int] = {}
+    keys: list[str] = []
+    for name in header:
+        if name not in used:
+            key = name
+        else:
+            suffix = suffixes.get(name, 1)
+            key = f"{name}#{suffix}"
+            while key in reserved or key in used:
+                suffix += 1
+                key = f"{name}#{suffix}"
+            suffixes[name] = suffix + 1
+        used.add(key)
+        keys.append(key)
+    return keys
+
+
 def _sniff_delimiter(sample: str, override: str | None) -> str:
-    if override:
+    if override is not None:
+        if len(override) != 1 or override in "\r\n\0\"":
+            raise LoadError("delimiter must be one non-newline character")
         return override
     try:
         return csv.Sniffer().sniff(sample, delimiters=DELIMITERS).delimiter
     except csv.Error:
         # Sniffer gives up on single-column files; comma is the safe default.
         return ","
+
+
+def _validated_lines(handle, delimiter: str):
+    """Stream physical lines while rejecting quotes that csv.reader overlooks.
+
+    The standard CSV reader is permissive with a quote in an unquoted field;
+    that can change record boundaries when the file is rewritten.  This small
+    lexical check follows CSV's start / unquoted / quoted / after-quote states
+    across physical lines.  It preserves properly quoted multiline cells.
+    """
+    state = "start"
+    for line_no, line in enumerate(handle, start=1):
+        for char in line:
+            if state == "quoted":
+                if char == '"':
+                    state = "after_quote"
+            elif state == "after_quote":
+                if char == '"':
+                    state = "quoted"  # doubled literal quote
+                elif char == delimiter:
+                    state = "start"
+                elif char in "\r\n":
+                    state = "start"
+                else:
+                    raise LoadError(
+                        f"Malformed CSV quoting at physical line {line_no}: "
+                        "text after a closing quote."
+                    )
+            elif state == "start":
+                if char == '"':
+                    state = "quoted"
+                elif char not in (delimiter, "\r", "\n"):
+                    state = "unquoted"
+            elif char == '"':
+                raise LoadError(
+                    f"Malformed CSV quoting at physical line {line_no}: "
+                    "quote in an unquoted field."
+                )
+            elif char == delimiter or char in "\r\n":
+                state = "start"
+        yield line
+    if state == "quoted":
+        raise LoadError("Malformed CSV quoting: unterminated quoted field at end of file.")
 
 
 def _scan_bytes(path: Path) -> tuple[list[Finding], str]:
@@ -191,19 +264,31 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
         sample = handle.read(64 * 1024)
         handle.seek(0)
         sep = _sniff_delimiter(sample, delimiter)
-        reader = csv.reader(handle, delimiter=sep)
+        reader = csv.reader(_validated_lines(handle, sep), delimiter=sep, strict=True)
         try:
             header = next(reader)
         except StopIteration:
             raise LoadError(f"File has no header row: {path}") from None
+        except csv.Error as exc:
+            raise LoadError(f"Malformed CSV header in {path.name}: {exc}") from exc
+
+        # A newline, an all-blank heading or a delimiter-only heading does
+        # not describe usable data.  Other blank column names remain visible
+        # to existing schema checks rather than silently disappearing.
+        if not header or not any(name.strip() for name in header):
+            raise LoadError(f"File has no usable header row: {path}")
 
         width = len(header)
         rows: list[list[str]] = []
         short_rows: list[int] = []
         long_rows: list[int] = []
+        source_lines: list[int] = []
+        previous_end_line = getattr(reader, "line_num", 1)
 
         try:
-            for line_no, row in enumerate(reader, start=2):
+            for logical_no, row in enumerate(reader, start=2):
+                line_no = previous_end_line + 1
+                previous_end_line = getattr(reader, "line_num", logical_no)
                 if not row:
                     continue
                 if len(row) < width:
@@ -213,6 +298,7 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
                     long_rows.append(line_no)
                     row = row[:width]
                 rows.append(row)
+                source_lines.append(line_no)
                 if max_rows is not None and len(rows) >= max_rows:
                     break
         except csv.Error as exc:
@@ -240,15 +326,8 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
             )
         )
 
-    seen: dict[str, int] = {}
     columns: list[Column] = []
-    for index, name in enumerate(header):
-        key = name
-        if name in seen:
-            seen[name] += 1
-            key = f"{name}#{seen[name]}"
-        else:
-            seen[name] = 0
+    for index, (name, key) in enumerate(zip(header, column_keys(header), strict=True)):
         values = [row[index] for row in rows]
         columns.append(
             Column(
@@ -257,6 +336,7 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
                 key=key,
                 values=values,
                 profile=profile_column(name, index, values),
+                source_lines=source_lines,
             )
         )
 
@@ -267,4 +347,5 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
         n_rows=len(rows),
         delimiter=sep,
         file_findings=file_findings,
+        source_lines=source_lines,
     )

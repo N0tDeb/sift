@@ -24,8 +24,8 @@ disclosure. No guaranteed response time is promised.
 ## Supported versions
 
 Security fixes are prepared on `main` and target the latest published stable
-release. Before the first public release, fixes are made on `main` only.
-Historical development snapshots are not guaranteed security backports.
+release. Historical development snapshots are not guaranteed security
+backports.
 
 ## Scope
 

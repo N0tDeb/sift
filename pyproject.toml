@@ -26,9 +26,9 @@ dependencies = []
 
 [project.optional-dependencies]
 excel = ["openpyxl>=3.1"]
-parquet = ["pyarrow>=14.0"]
-all = ["openpyxl>=3.1", "pyarrow>=14.0"]
-dev = ["pytest>=7.0", "ruff>=0.4", "openpyxl>=3.1", "pyarrow>=14.0"]
+parquet = ["pyarrow>=14.0.1"]
+all = ["openpyxl>=3.1", "pyarrow>=14.0.1"]
+dev = ["pytest>=7.0", "ruff>=0.4", "openpyxl>=3.1", "pyarrow>=14.0.1"]
 
 [project.urls]
 Homepage = "https://github.com/N0tDeb/sift"

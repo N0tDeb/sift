@@ -19,10 +19,12 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from math import fsum, isfinite
 
 from .config import Config
 from .inference import is_blank, parse_number
 from .loading import Table
+from .profiling import infer_number_convention
 from .repair import MEDIUM, plan_repairs
 from .text import fmt_number, plural, terminal_safe
 
@@ -71,12 +73,42 @@ class GroupImpact:
     merges: list[tuple[str, list[str], float]] = field(default_factory=list)
     misplaced_amount: float = 0.0
     total_amount: float = 0.0
+    total_magnitude: float = 0.0
 
     @property
     def misplaced_share(self) -> float | None:
-        if not self.total_amount:
+        # A net zero sum can still hide a great deal of affected money.
+        # Use the total absolute weight so this share is bounded by 100%.
+        if not self.total_magnitude:
             return None
-        return self.misplaced_amount / abs(self.total_amount)
+        return self.misplaced_amount / self.total_magnitude
+
+
+@dataclass
+class AggregateImpact:
+    """One additional numeric aggregate, compared under identical row selection.
+
+    ``None`` means no numeric values survived; it never represents a real zero.
+    AVG is the arithmetic mean of the numeric rows, not all input rows.
+    """
+
+    metric: str
+    column: str
+    loads_as_number: bool
+    coerced_value: float | None
+    repaired_value: float | None
+    coerced_rows: int
+    repaired_rows: int
+    total_rows: int
+
+    @property
+    def difference(self) -> float | None:
+        if self.coerced_value is None or self.repaired_value is None:
+            return None
+        difference = self.repaired_value - self.coerced_value
+        if not isfinite(difference):
+            raise ImpactError("Non-finite aggregate difference; numeric overflow.")
+        return difference
 
 
 @dataclass
@@ -93,6 +125,21 @@ def _values(table: Table, name: str) -> list[str]:
     return list(column.values)
 
 
+def _require_unambiguous_measure(table: Table, name: str | None) -> None:
+    """Do not display a precise-looking sum for an undecidable locale."""
+    if name is None:
+        return
+    column = table.by_key(name)
+    if column is None:
+        raise ImpactError(f"No column named {name!r} in {table.path}.")
+    reading = infer_number_convention(column.profile)
+    if reading.label in ("undecidable", "conflicting"):
+        raise ImpactError(
+            f"Cannot compute SUM({name}): numeric convention is "
+            f"{reading.label}. {reading.reason}"
+        )
+
+
 def _coerce(values: list[str]) -> tuple[list[float], int]:
     """What a typed loader keeps. `float()` is deliberately strict here: it is
     exactly as strict as the loader whose behaviour we are predicting, so
@@ -103,9 +150,14 @@ def _coerce(values: list[str]) -> tuple[list[float], int]:
         if is_blank(value):
             continue
         try:
-            kept.append(float(value))
-        except ValueError:
+            number = float(value)
+        except (ValueError, OverflowError):
             dropped += 1
+            continue
+        if not isfinite(number):
+            raise ImpactError("Non-finite numeric value (NaN or infinity) prevents "
+                              "a trustworthy aggregate; correct the source data.")
+        kept.append(number)
     return kept, dropped
 
 
@@ -116,8 +168,13 @@ def prepare_repaired_rows(table: Table, config: Config) -> list[list[str]]:
 
 
 def _repaired_values(table: Table, rows: list[list[str]], name: str) -> list[str]:
-    index = next(i for i, column in enumerate(table.columns) if column.name == name)
-    return [row[index] for row in rows]
+    # A duplicate header is assigned a stable key such as amount#1 by the
+    # loader. Resolve exactly as _values does rather than looking only at the
+    # display name: otherwise valid --sum/--group-by selectors can crash.
+    column = table.by_key(name)
+    if column is None:
+        raise ImpactError(f"No column named {name!r} in {table.path}.")
+    return [row[column.index] for row in rows]
 
 
 def sum_impact(
@@ -127,6 +184,7 @@ def sum_impact(
     *,
     repaired_rows: list[list[str]] | None = None,
 ) -> SumImpact:
+    _require_unambiguous_measure(table, column)
     raw = _values(table, column)
     rows = repaired_rows if repaired_rows is not None else prepare_repaired_rows(table, config)
     repaired = _repaired_values(table, rows, column)
@@ -140,6 +198,10 @@ def sum_impact(
         if parsed is not None:
             after.append(parsed.value)
 
+    if not isfinite(sum(coerced)) or not isfinite(sum(after)):
+        raise ImpactError("Non-finite SUM result: the aggregate exceeds the supported "
+                          "numeric range. Inspect the source data before interpreting it.")
+
     impact = SumImpact(
         column=column,
         loads_as_number=loads_as_number,
@@ -149,6 +211,9 @@ def sum_impact(
         repaired_rows=len(after),
         total_rows=len(raw),
     )
+
+    if not isfinite(impact.difference):
+        raise ImpactError("Non-finite difference between aggregates; numeric overflow.")
 
     # Attribute the gap. Each raw value falls into exactly one bucket, so the
     # causes add up to the difference rather than merely gesturing at it.
@@ -182,6 +247,68 @@ def sum_impact(
     return impact
 
 
+def aggregate_impact(
+    table: Table,
+    config: Config,
+    column: str,
+    metric: str,
+    *,
+    repaired_rows: list[list[str]] | None = None,
+) -> AggregateImpact:
+    """Quantify AVG/MIN/MAX changes without silently inventing a zero on empty data."""
+    if metric not in ("avg", "min", "max"):
+        raise ImpactError(f"Unsupported aggregate {metric!r}; choose avg, min or max.")
+    _require_unambiguous_measure(table, column)
+    raw = _values(table, column)
+    rows = repaired_rows if repaired_rows is not None else prepare_repaired_rows(table, config)
+    repaired = _repaired_values(table, rows, column)
+    coerced, dropped = _coerce(raw)
+
+    after = []
+    for value in repaired:
+        parsed = parse_number(value) if not is_blank(value) else None
+        if parsed is not None:
+            after.append(parsed.value)
+
+    def compute(values: list[float]) -> float | None:
+        if not values:
+            return None
+        try:
+            if metric == "avg":
+                try:
+                    result = fsum(values) / len(values)
+                except OverflowError:
+                    # The sum can overflow when the *mean* is representable.
+                    # Normalize before summation as an extreme-range fallback.
+                    scale = max(abs(value) for value in values)
+                    result = scale * fsum(
+                        value / scale / len(values) for value in values
+                    )
+            elif metric == "min":
+                result = min(values)
+            else:
+                result = max(values)
+        except OverflowError as exc:
+            raise ImpactError("Numeric aggregate exceeds the supported range.") from exc
+        if not isfinite(result):
+            raise ImpactError("Non-finite aggregate result; numeric overflow.")
+        return result
+
+    impact = AggregateImpact(
+        metric=metric,
+        column=column,
+        loads_as_number=dropped == 0,
+        coerced_value=compute(coerced),
+        repaired_value=compute(after),
+        coerced_rows=len(coerced),
+        repaired_rows=len(after),
+        total_rows=len(raw),
+    )
+    # Fail before rendering if subtraction overflows.
+    _ = impact.difference
+    return impact
+
+
 def group_impact(
     table: Table,
     config: Config,
@@ -190,6 +317,7 @@ def group_impact(
     *,
     repaired_rows: list[list[str]] | None = None,
 ) -> GroupImpact:
+    _require_unambiguous_measure(table, measure)
     raw = _values(table, column)
     rows = repaired_rows if repaired_rows is not None else prepare_repaired_rows(table, config)
     repaired = _repaired_values(table, rows, column)
@@ -212,14 +340,21 @@ def group_impact(
     for original, fixed, weight in zip(raw, repaired, weights, strict=True):
         if original != fixed and not is_blank(fixed):
             folded.setdefault(fixed, {}).setdefault(original, 0.0)
-            folded[fixed][original] += weight
-            misplaced += weight
+            # An affected debit must not cancel an affected credit. Report
+            # absolute exposure, while preserving total_amount's signed sum.
+            folded[fixed][original] += abs(weight)
+            misplaced += abs(weight)
 
     merges = [
         (canonical, sorted(sources), sum(sources.values()))
         for canonical, sources in folded.items()
     ]
     merges.sort(key=lambda item: -item[2])
+
+    total_amount = sum(weights)
+    total_magnitude = sum(abs(weight) for weight in weights)
+    if not all(isfinite(value) for value in (misplaced, total_amount, total_magnitude)):
+        raise ImpactError("Non-finite GROUP BY aggregate; numeric overflow.")
 
     return GroupImpact(
         column=column,
@@ -228,7 +363,8 @@ def group_impact(
         groups_after=len(after),
         merges=merges,
         misplaced_amount=misplaced,
-        total_amount=sum(weights),
+        total_amount=total_amount,
+        total_magnitude=total_magnitude,
     )
 
 
@@ -239,6 +375,7 @@ def duplicate_impact(
     *,
     repaired_rows: list[list[str]] | None = None,
 ) -> DuplicateImpact:
+    _require_unambiguous_measure(table, measure)
     rows = list(zip(*[column.values for column in table.columns], strict=True))
     counts = Counter(rows)
     extra_indexes = []
@@ -260,6 +397,8 @@ def duplicate_impact(
             parsed = parse_number(values[index]) if not is_blank(values[index]) else None
             if parsed:
                 amount += parsed.value
+    if not isfinite(amount):
+        raise ImpactError("Non-finite duplicate aggregate; numeric overflow.")
     return DuplicateImpact(len(extra_indexes), amount, measure)
 
 
@@ -268,6 +407,9 @@ def render(
     total: SumImpact | None,
     groups: GroupImpact | None,
     duplicates: DuplicateImpact | None,
+    *,
+    redact_groups: bool = False,
+    aggregates: list[AggregateImpact] | None = None,
 ) -> str:
     lines = [f"{terminal_safe(table.path)}  {plural(table.n_rows, 'row')}", ""]
 
@@ -309,6 +451,28 @@ def render(
                 lines.append(f"    {plural(cause.rows, 'row'):>9}  {cause.label}{amount}")
         lines.append("")
 
+    for aggregate in aggregates or []:
+        lines.append(f"{aggregate.metric.upper()}({terminal_safe(aggregate.column)})")
+        if not aggregate.loads_as_number:
+            lines.append("  as it loads         not a number — some values load as text")
+        original = (fmt_number(aggregate.coerced_value)
+                    if aggregate.coerced_value is not None else "n/a (no numeric rows)")
+        repaired = (fmt_number(aggregate.repaired_value)
+                    if aggregate.repaired_value is not None else "n/a (no numeric rows)")
+        lines.append(
+            f"  coerced          {original:>16}"
+            f"   from {aggregate.coerced_rows:,} of {aggregate.total_rows:,} rows"
+        )
+        lines.append(
+            f"  after sift-lint fix   {repaired:>16}"
+            f"   from {aggregate.repaired_rows:,} of {aggregate.total_rows:,} rows"
+        )
+        difference = aggregate.difference
+        lines.append(
+            f"  difference       {fmt_number(difference) if difference is not None else 'n/a':>16}"
+        )
+        lines.append("")
+
     if groups:
         measure = f", SUM({terminal_safe(groups.measure)})" if groups.measure else ""
         lines.append(f"GROUP BY {terminal_safe(groups.column)}{measure}")
@@ -318,18 +482,23 @@ def render(
         )
         if groups.merges:
             share = groups.misplaced_share
-            unit = "of the total" if groups.measure else "of rows"
+            unit = "of absolute measured value" if groups.measure else "of rows"
             suffix = f" ({share:.1%} {unit})" if share is not None else ""
             lines.append(
                 f"  {fmt_number(groups.misplaced_amount)} sits under a label that is a "
                 f"spelling of another{suffix}:"
             )
             for canonical, sources, amount in groups.merges[:5]:
-                spellings = ", ".join(terminal_safe(repr(source)) for source in sources)
-                lines.append(
-                    f"    {spellings} belongs to {terminal_safe(repr(canonical))}  "
-                    f"{fmt_number(amount)}"
-                )
+                if redact_groups:
+                    lines.append(
+                        f"    [redacted sensitive group labels]  {fmt_number(amount)}"
+                    )
+                else:
+                    spellings = ", ".join(terminal_safe(repr(source)) for source in sources)
+                    lines.append(
+                        f"    {spellings} belongs to {terminal_safe(repr(canonical))}  "
+                        f"{fmt_number(amount)}"
+                    )
         lines.append("")
 
     if duplicates and duplicates.extra_rows:

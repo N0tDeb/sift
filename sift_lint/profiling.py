@@ -178,25 +178,20 @@ def profile_column(
         dominant = NUMERIC
 
     if dominant == NUMERIC or (dominant == DATE and kinds.get(NUMERIC)):
-        evidence = profile.number_evidence
-        english = evidence.get("en", 0)
-        european = evidence.get("eu", 0)
-        # One decisive row settles the column. "1.234,56" can only be read
-        # the European way, and every ambiguous value in the column follows it.
-        if european and not english:
-            profile.number_convention = "eu"
-        elif not english and evidence.get("group-eu") and not evidence.get("group-en"):
-            profile.number_convention = "eu"
-        for *_, readings, _ in parsed:
-            # Fall back to any available reading rather than dropping the
-            # value: in a column that mixes both conventions no choice is
-            # right, and silently losing rows would be worse than either.
-            number = readings.get(profile.number_convention) or (
-                next(iter(readings.values())) if readings else None
-            )
-            if number is not None:
-                profile.numbers.append(number.value)
-                profile.number_flags |= number.flags
+        # A grouping-shaped string such as 1.234 is *not* proof that the
+        # value means 1234.  Only decisive column evidence permits numeric
+        # summaries; otherwise reporting a median would invent precision.
+        reading = infer_number_convention(profile)
+        if reading.convention is not None:
+            profile.number_convention = reading.convention
+        if reading.label not in ("undecidable", "conflicting"):
+            for *_, readings, _ in parsed:
+                number = readings.get(profile.number_convention) or (
+                    next(iter(readings.values())) if readings else None
+                )
+                if number is not None:
+                    profile.numbers.append(number.value)
+                    profile.number_flags |= number.flags
 
     if dominant == DATE:
         for *_, dates in parsed:
@@ -357,25 +352,14 @@ def infer_number_convention(profile: ColumnProfile) -> NumberReading:
             reason += f", which settles the {undecided:,} that could go either way"
         return NumberReading(convention, "certain", reason + ".")
 
-    if group_en and group_eu:
+    if group_en or group_eu:
         return NumberReading(
             None,
-            "conflicting",
-            f"{plural(group_en, 'value')} group thousands with a comma and "
-            f"{group_eu:,} group with a dot. The column mixes both conventions, "
-            "so one of the two is being misread by a factor of a thousand.",
+            "undecidable",
+            "Separator patterns resembling thousands grouping can also represent "
+            "three decimal places (for example, 1.234 may mean 1.234 or 1234). "
+            "No value in this column establishes the intended convention.",
         )
-
-    if group_eu:
-        return NumberReading(
-            "eu",
-            "certain",
-            f"{plural(group_eu, 'value')} group thousands with a dot, which is "
-            "European convention. Read the English way they lose a factor of a "
-            "thousand.",
-        )
-    if group_en:
-        return NumberReading("en", "certain", "Thousands are grouped with a comma.")
 
     if ambiguous:
         return NumberReading(
