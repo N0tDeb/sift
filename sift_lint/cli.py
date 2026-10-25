@@ -28,6 +28,7 @@ from .checks import run_checks, sensitive_columns
 from .config import FAIL_ON_LEVELS, Config, ConfigError, find_config, load_config
 from .drift import compare
 from .findings import redact_sensitive_findings
+from .github_annotations import render_annotations
 from .impact import (
     ImpactError,
     aggregate_impact,
@@ -81,12 +82,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"sift-lint {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    def common(sp: argparse.ArgumentParser) -> None:
+    def common(sp: argparse.ArgumentParser, *, github: bool = False) -> None:
         sp.add_argument("--delimiter", help="Override delimiter detection.")
         sp.add_argument("--config", type=Path, help="Path to a sift.toml.")
         sp.add_argument("--no-config", action="store_true", help="Ignore any sift.toml.")
         sp.add_argument(
-            "--format", choices=("text", "json", "html"), default="text",
+            "--format", choices=("text", "json", "html", "github") if github
+            else ("text", "json", "html"), default="text",
         )
         sp.add_argument("--output", type=Path, help="Write the report to a file.")
         sp.add_argument(
@@ -124,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     check_cmd.add_argument(
         "--key", action="append", default=[], help="Column that must be unique and present."
     )
-    common(check_cmd)
+    common(check_cmd, github=True)
 
 
     baseline_cmd = sub.add_parser(
@@ -381,7 +383,12 @@ def check_many(
         results.append((target, findings))
         result_codes.append(exit_code(findings, config))
 
-    if args.format == "json":
+    if args.format == "github":
+        body = render_annotations(
+            [(path, None, findings) for path, findings in results],
+            [(path, None, error) for path, error in failures],
+        )
+    elif args.format == "json":
         payload = {
             "files": [
                 {
@@ -475,7 +482,12 @@ def check_all_sheets(
     def display(path: Path, sheet: str | None) -> str:
         return f"{path} [sheet: {sheet}]" if sheet is not None else str(path)
 
-    if args.format == "json":
+    if args.format == "github":
+        body = render_annotations(
+            [(path, sheet, findings) for path, sheet, _, findings in results],
+            failures,
+        )
+    elif args.format == "json":
         payload = {
             "files": [
                 {
@@ -864,7 +876,12 @@ def _run_check(args: argparse.Namespace) -> int:
         for reference in references:
             findings.extend(check_reference(table, reference, config, reference_load))
         findings = redact_sensitive_findings(findings, sensitive_columns(table, config))
-        report = write_report(table, findings, args.format, args.output)
+        if args.format == "github":
+            report = render_annotations([(targets[0], None, findings)])
+            if args.output:
+                atomic_write_text(args.output, report)
+        else:
+            report = write_report(table, findings, args.format, args.output)
         if args.output:
             summary = summarize(findings)
             print(

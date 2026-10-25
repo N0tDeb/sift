@@ -38,7 +38,7 @@ Run against 22 public datasets, it found a price column that sums to zero, a men
 
 ## Documentation
 
-For architecture, design decisions, testing strategy, security, performance, extension guidance, and operational details, see the [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md).
+For architecture, design decisions, testing strategy, security, performance, extension guidance, and operational details, see the [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md). Maintainers should also consult the [Release Checklist](https://github.com/N0tDeb/sift/blob/main/docs/RELEASE_CHECKLIST.md) before merging or publishing.
 
 ## Named baselines (local)
 
@@ -399,6 +399,25 @@ Sift reports those as three different findings with three different remedies, an
 '12 of 21 dates can only be read as day-first; the remaining 9 are valid both
  ways and would follow that reading.'
 ```
+
+## GitHub Actions annotations
+
+For an opt-in GitHub-friendly report, use `check --format github`. Findings
+appear as `::error`, `::warning` or `::notice` workflow commands, with their
+finding codes and original file paths. This mode works for single-file, folder
+and `--all-sheets` checks. It preserves the standard `--fail-on` exit policy:
+
+```yaml
+- name: Validate incoming data
+  run: sift-lint check data/ --format github --fail-on warning
+```
+
+Annotations omit example values and omit line numbers unless Sift can establish
+a reliable location (currently none are supplied). Findings undergo the same
+sensitive-data redaction as other report formats. As with JSON/HTML reports,
+review source filenames and column names before publishing diagnostics to a
+public build log. Use `--output PATH` to save the raw commands without emitting
+them to the workflow UI. This format is available for `check` only, not `diff`.
 
 ## In CI
 

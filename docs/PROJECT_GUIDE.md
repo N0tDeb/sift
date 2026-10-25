@@ -88,7 +88,7 @@ The definitive project state has the following properties:
 | Parquet extra | `pyarrow>=14.0.1` |
 | Build backend | Hatchling |
 | License | MIT |
-| Python source modules | 18 |
+| Python source modules | 19 |
 | Registered check functions | 20 |
 | Stable documented finding codes | 70 |
 | CLI subcommands | 7 |
@@ -136,6 +136,7 @@ The architecture is intentionally module-oriented rather than framework-oriented
 | [`sift_lint/findings.py`](../sift_lint/findings.py) | `Severity`, `Finding`, sorting and sensitive-column redaction |
 | [`sift_lint/config.py`](../sift_lint/config.py) | `sift.toml` discovery, validation, thresholds and silencing |
 | [`sift_lint/reporting.py`](../sift_lint/reporting.py) | Text, JSON and HTML rendering |
+| [`sift_lint/github_annotations.py`](../sift_lint/github_annotations.py) | Opt-in escaped GitHub Actions annotations for checked findings |
 | [`sift_lint/repair.py`](../sift_lint/repair.py) | Repair planning, refusals, CSV writing and audit logs |
 | [`sift_lint/drift.py`](../sift_lint/drift.py) | Baseline-versus-current comparison |
 | [`sift_lint/impact.py`](../sift_lint/impact.py) | Aggregate blast-radius calculations |
@@ -525,7 +526,7 @@ Important options:
 - `--key COLUMN`
 - `--delimiter`
 - `--config` / `--no-config`
-- `--format text|json|html`
+- `--format text|json|html|github` (`check` only)
 - `--output`
 - `--fail-on error|warning|info|none`
 - `--ignore CODE`
@@ -632,6 +633,21 @@ through `sift_lint.repair.render_plan_json` as an internal helper.
 Preview safety flags describe known content risks, not destination validity or
 cross-file transactional guarantees; a bounded `--max-rows` preview explicitly
 reports that it cannot safely be exported as a complete repaired file.
+
+### GitHub annotation format (Batch 12)
+
+`check --format github` is an opt-in workflow-command reporter. It maps error,
+warning and info to GitHub's `error`, `warning` and `notice` annotations, for
+single files, directories and workbook-wide `--all-sheets` analysis. It reports
+unreadable files and sheets as error annotations while retaining exit status 2.
+Every finding goes through the same redaction path as JSON and text reports;
+raw examples are deliberately excluded. All untrusted path, title and message
+fields have workflow-command separators and terminal control bytes escaped.
+
+Finding-level checks generally refer to a column or a file, not a verified
+physical source line. The GitHub formatter therefore **does not invent line
+numbers** or claim to point at a particular offending row. `diff` does not
+support this format; its existing JSON, HTML and text output is unchanged.
 
 ## 13. Safe repair
 
@@ -1012,7 +1028,7 @@ console script, runs a real `sift-lint check`, and runs `pip check`.
 
 #### Data gate
 
-The data-gate job installs all optional format support and exercises the project as a user would:
+The data-gate job installs all optional format support, smoke-tests GitHub annotations without posting fixture warnings, and exercises the project as a user would:
 
 - check the example directory;
 - compare messy data with the baseline;
@@ -1337,7 +1353,7 @@ Escaping untrusted control and bidirectional formatting characters before embedd
 
 ## Maintenance note
 
-This guide tracks the current Sift development state. Update it alongside public behavior or architecture changes. In particular, keep command options, finding-code counts, CI behavior, optional dependencies, benchmark claims and limitations synchronized with the source and tests.
+See the [maintainer release checklist](RELEASE_CHECKLIST.md) before any merge or publication. This guide tracks the current Sift development state. Update it alongside public behavior or architecture changes. In particular, keep command options, finding-code counts, CI behavior, optional dependencies, benchmark claims and limitations synchronized with the source and tests.
 
 
 ## Named local baselines (Batch 9)

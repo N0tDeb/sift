@@ -5,6 +5,14 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 12 opt-in GitHub Actions annotations for `check --format github`:
+  emit error/warning/notice workflow commands on single-file, multi-file and
+  multi-sheet inspections; escape command metacharacters, omit sensitive
+  examples and unverified line numbers, and preserve existing exit codes.
+  Smoke-test the reporter in CI without publishing deliberately broken
+  example data as PR annotations. Check installed test dependencies with
+  `pip check` across the CI matrix and add a maintainer release checklist.
+
 - Batch 11 optional Excel workbook-wide inspection: `check --all-sheets` and
   `profile --all-sheets` inspect every worksheet, including hidden sheets.
   Report each sheet separately in text, JSON and HTML; propagate unprocessable
