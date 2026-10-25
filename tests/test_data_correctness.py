@@ -46,12 +46,15 @@ def test_malformed_quoting_never_overwrites_output_even_with_force(tmp_path: Pat
     assert output.read_bytes() == b"important original output\n"
 
 
-def test_valid_multiline_and_doubled_quotes_still_load(tmp_path: Path) -> None:
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_valid_multiline_and_doubled_quotes_still_load(
+    tmp_path: Path, newline: bytes
+) -> None:
     source = tmp_path / "valid.csv"
-    source.write_text('id,comment\n1,"hello\n""there"""\n2,ok\n', encoding="utf-8")
+    source.write_bytes(b'id,comment\n1,"hello\n""there"""\n2,ok\n'.replace(b"\n", newline))
     table = load(source)
     assert table.n_rows == 2
-    assert table.columns[1].values == ['hello\n"there"', "ok"]
+    assert table.columns[1].values == ['hello' + newline.decode("ascii") + '"there"', "ok"]
     assert table.source_lines == [2, 4]
 
 
