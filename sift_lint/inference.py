@@ -10,6 +10,7 @@ a zip code, the dollar sign that turns a number into a string, the fact that
 from __future__ import annotations
 
 import re
+from math import isfinite
 from datetime import datetime
 from functools import lru_cache
 
@@ -159,6 +160,8 @@ def _parse_with(value: str, convention: str) -> Number | None:
         flags.add("currency")
 
     number = float(raw.replace(thousands, "").replace(decimal, "."))
+    if not isfinite(number):
+        return None  # Overflowed float is not a usable numeric value.
     if match["pct"]:
         flags.add("percent")
     if match["sign"] == "-":
@@ -342,11 +345,17 @@ def has_mojibake(value: str) -> bool:
 def is_formula_injection(value: str) -> bool:
     """Whether a spreadsheet may execute this value as a formula.
 
-    Leading horizontal whitespace is ignored because spreadsheet imports may
-    trim it before deciding whether a cell is a formula. A leading minus is
-    deliberately excluded so ordinary negative numbers remain ordinary data.
+    Inspect *all* leading whitespace, including newlines and non-breaking
+    spaces. Legitimate signed numbers are exempt independent of the containing
+    column's inferred type; a mostly-numeric column can still contain a formula.
+    Non-numeric leading minus signs are risky too.
     """
-    return value.lstrip("\t\r ")[:1] in {"=", "+", "@"}
+    text = value.lstrip()
+    if not text or text[0] not in {"=", "+", "-", "@"}:
+        return False
+    if text[0] in {"+", "-"} and parse_number_any(text):
+        return False
+    return True
 
 
 def whitespace_problem(value: str) -> str | None:

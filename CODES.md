@@ -72,7 +72,7 @@ A test asserts this file lists exactly the codes the source can emit, so it cann
 
 | Code | Severity | Meaning |
 | --- | --- | --- |
-| `formula-injection` | warning | Values starting with `=`, `+` or `@`, which a spreadsheet executes as a formula rather than showing as text. |
+| `formula-injection` | warning | Formula-like values starting with `=`, `+`, `-` or `@` after optional whitespace (genuine signed numbers excluded); detected in all column types. |
 | `mojibake` | error | Text mangled by a bad encoding round-trip. Not repairable; re-export the source. |
 | `label-variants` | warning | The same category spelled several ways by case or spacing. |
 | `whitespace` | warning | Stray, doubled or non-breaking whitespace inside values. |
@@ -106,6 +106,7 @@ Nothing here is a defect — the file is fine. These say *this file contains per
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `formula-error` | error | `#REF!`, `#N/A` and similar exported as literal text. |
+| `excel-formulas` | warning | The selected worksheet contains Excel formula cells; `fix` refuses values-only CSV conversion, even with `--force`. |
 | `partial-excel-dates` | error | Some cells are real dates and the rest are text that looks identical on screen. |
 | `preamble-rows` | warning | Title or spacer rows above the header, written for a human reader. |
 | `loose-schema` | warning | A Parquet column declared as string whose values are all numbers. |

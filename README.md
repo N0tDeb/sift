@@ -2,10 +2,10 @@
 
 [![CI](https://github.com/N0tDeb/sift/actions/workflows/ci.yml/badge.svg)](https://github.com/N0tDeb/sift/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/N0tDeb/sift/blob/main/LICENSE)
 [![Benchmark](https://img.shields.io/badge/recall-28%2F28-brightgreen.svg)](BENCHMARK.md)
 
-![Sift CLI demonstration](demo/sift.gif)
+![Sift CLI demonstration](https://raw.githubusercontent.com/N0tDeb/sift/main/demo/sift.gif)
 
 **Finds the errors that don't raise errors.**
 
@@ -32,13 +32,13 @@ sift-lint check examples/orders_messy.csv --key order_id
 ```
 
 The example intentionally contains defects, so the `check` command exits with code 1.
-For source development and verification, see [SETUP.md](SETUP.md).
+For source development and verification, see [SETUP.md](https://github.com/N0tDeb/sift/blob/main/SETUP.md).
 
-Run against 22 public datasets, it found a price column that sums to zero, a menu with three products split in two by a stray hyphen, and two Titanic passengers whose names have a trailing space. Details, including the three false positives that run exposed, are in [REAL-DATA.md](REAL-DATA.md).
+Run against 22 public datasets, it found a price column that sums to zero, a menu with three products split in two by a stray hyphen, and two Titanic passengers whose names have a trailing space. Details, including the three false positives that run exposed, are in [REAL-DATA.md](https://github.com/N0tDeb/sift/blob/main/REAL-DATA.md).
 
 ## Documentation
 
-For architecture, design decisions, testing strategy, security, performance, extension guidance, and operational details, see the [Project Guide](docs/PROJECT_GUIDE.md).
+For architecture, design decisions, testing strategy, security, performance, extension guidance, and operational details, see the [Project Guide](https://github.com/N0tDeb/sift/blob/main/docs/PROJECT_GUIDE.md).
 
 ## Why
 
@@ -88,15 +88,15 @@ warning leading-zeros  zip
 23 findings: 6 error, 14 warning, 3 info
 ```
 
-`--format html` writes a standalone report you can send to whoever owns the data — [sample-report.html](sample-report.html) is one, generated from the example file. `--format json` is for everything else.
+`--format html` writes a standalone report you can send to whoever owns the data — [sample-report.html](https://github.com/N0tDeb/sift/blob/main/sample-report.html) is one, generated from the example file. `--format json` is for everything else.
 
 Terminal output treats file names, column names and example values as untrusted text: control and Unicode format characters are shown as visible escapes (for example `\\x1b`) instead of being sent to the terminal as control sequences.
 
-Every finding has a stable code. [CODES.md](CODES.md) lists all 63 of them with severity and meaning; a test keeps that list from drifting out of date.
+Every finding has a stable code. [CODES.md](https://github.com/N0tDeb/sift/blob/main/CODES.md) lists all 64 of them with severity and meaning; a test keeps that list from drifting out of date.
 
 ### HTML report preview
 
-![Sift HTML report showing data-quality findings](docs/html-report-preview.png)
+![Sift HTML report showing data-quality findings](https://raw.githubusercontent.com/N0tDeb/sift/main/docs/html-report-preview.png)
 
 ## Commands
 
@@ -104,7 +104,7 @@ Every finding has a stable code. [CODES.md](CODES.md) lists all 63 of them with 
 |---|---|
 | `sift-lint check FILE...` | Lint one file, several, or a whole directory. |
 | `sift-lint diff BASELINE FILE` | Compare against a known-good file: dropped columns, type changes, new categories, null-rate jumps, distribution shifts. |
-| `sift-lint fix FILE --output clean.csv` | Write a repaired copy plus an audit log of every cell changed — sensitive before/after values are redacted — and a list of what it refused to touch. |
+| `sift-lint fix FILE --output clean.csv` | Write a repaired copy and a list of refused changes. Add `--log changes.csv` for an optional cell-level audit log (sensitive values are redacted). |
 | `sift-lint impact FILE --sum COL --group-by COL` | Quantify how wrong one specific aggregate is, in the units of the aggregate. |
 | `sift-lint init FILE` | Learn a `sift.toml` from a file you already trust, with the reason for every exemption written down. |
 | `sift-lint profile FILE` | Describe every column — type, null rate, cardinality, range. No judgement. |
@@ -178,7 +178,11 @@ Across files:
   label-variants             3 of 5 files
 ```
 
+For multi-file checks, text, JSON and HTML reports support `--output PATH`. If any file cannot be checked, Sift returns exit code `2` even when other files produced findings; the report identifies unreadable files.
+
 The last section is the point. A pipeline that writes a file a day puts the same defect in every one of them, and *"number-as-text in 11 of 12 files"* points at the export that produced them rather than at twelve separate cleanup jobs.
+
+When using `fix --max-rows N`, only `--dry-run` is permitted: writing a repaired copy from a row-limited read would silently omit the unexamined rows. File outputs are staged before replacement, but output and audit-log files are not one atomic multi-file transaction.
 
 ## Fixing, and refusing to fix
 
@@ -219,7 +223,7 @@ Three design decisions worth the words:
 
 - **Numbers are edited as text, never round-tripped through `float()`.** Reformatting would change how many decimals the file had. The parse is used only to confirm the edit didn't change the value.
 - **`--log` writes every changed cell** with its line number, before, after, and the rule responsible. Replaying that log against the original reproduces the output exactly — there's a test for it. A cleaned file you can't diff against the original is just a different unverified file.
-- **`fix` refuses unsafe rewrites by default.** Ragged rows get padded or truncated on read, so rewriting would make that loss permanent and invisible. Columns containing spreadsheet-formula-risk values (`=`, `+` or `@`) are also left unchanged, and `fix` will not write an output while that risk remains. `--dry-run` previews the refusal; `--force` explicitly accepts the unresolved risk.
+- **`fix` refuses unsafe rewrites by default.** Ragged rows get padded or truncated on read, so rewriting could destroy data. Formula-like CSV values (`=`, `+`, `-`, or `@`, excluding ordinary signed numbers) are detected even in mostly numeric columns, including after leading whitespace/newlines. Affected columns remain unchanged and normal writes are refused; `--force` can accept *existing* CSV risks but cannot create a new formula risk. Excel `.xlsx`/`.xlsm` formula cells in the selected sheet block `fix` even with `--force`, because exporting their cached values can silently lose formulas or blank cells. `--dry-run` explains refusals without writing. Other Excel sheets are not exported or checked.
 
 Running `fix` twice changes nothing the second time. Also a test.
 
@@ -338,7 +342,7 @@ Committing a baseline file next to the data turns `diff` into a regression test 
 
 ## Configuration
 
-Checks are silenced by code — see [CODES.md](CODES.md) for the full list. Sift reads the nearest `sift.toml`, walking up from the file being checked.
+Checks are silenced by code — see [CODES.md](https://github.com/N0tDeb/sift/blob/main/CODES.md) for the full list. Sift reads the nearest `sift.toml`, walking up from the file being checked.
 
 ```toml
 [sift]
@@ -418,13 +422,13 @@ The suite includes regression tests for clean-data silence, complete repair audi
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+Issues and pull requests are welcome. See [CONTRIBUTING.md](https://github.com/N0tDeb/sift/blob/main/CONTRIBUTING.md) for the
 development workflow and expectations for new checks. Documentation consistency,
 clean-data behavior and benchmark regressions are checked in CI.
 
-Security issues should be reported privately; see [SECURITY.md](SECURITY.md).
-Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
+Security issues should be reported privately; see [SECURITY.md](https://github.com/N0tDeb/sift/blob/main/SECURITY.md).
+Changes are tracked in [CHANGELOG.md](https://github.com/N0tDeb/sift/blob/main/CHANGELOG.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/N0tDeb/sift/blob/main/LICENSE).

@@ -41,6 +41,7 @@ from .inference import (
     parse_number,
 )
 from .loading import Column, Table
+from .output import atomic_text_writer
 from .profiling import (
     CATEGORICAL,
     DATE,
@@ -94,8 +95,10 @@ class RepairPlan:
         return dict(grouped)
 
 
-def _line(row: int) -> int:
-    return row + 2  # row 0 is the line after the header
+def _line(row: int, column: Column | None = None) -> int:
+    if column is not None and row < len(column.source_lines):
+        return column.source_lines[row]
+    return row + 2  # Fallback for formats without physical CSV row locations.
 
 
 def plain_number(raw: str, convention: str = "en") -> str | None:
@@ -139,7 +142,7 @@ def rule_trim_whitespace(column: Column, values: list[str], plan: RepairPlan) ->
         cleaned = value.replace("\u00a0", " ").strip()
         if cleaned != value:
             plan.changes.append(
-                Change(_line(row), column.name, value, cleaned, "trim-whitespace", HIGH)
+                Change(_line(row, column), column.name, value, cleaned, "trim-whitespace", HIGH)
             )
             values[row] = cleaned
 
@@ -149,7 +152,7 @@ def rule_collapse_spaces(column: Column, values: list[str], plan: RepairPlan) ->
         cleaned = " ".join(value.split())
         if cleaned != value:
             plan.changes.append(
-                Change(_line(row), column.name, value, cleaned, "collapse-spaces", MEDIUM)
+                Change(_line(row, column), column.name, value, cleaned, "collapse-spaces", MEDIUM)
             )
             values[row] = cleaned
 
@@ -158,7 +161,7 @@ def rule_blank_null(column: Column, values: list[str], plan: RepairPlan) -> None
     for row, value in enumerate(values):
         if is_disguised_null(value):
             plan.changes.append(
-                Change(_line(row), column.name, value, "", "blank-null", HIGH)
+                Change(_line(row, column), column.name, value, "", "blank-null", HIGH)
             )
             values[row] = ""
 
@@ -196,7 +199,7 @@ def rule_plain_number(column: Column, values: list[str], plan: RepairPlan) -> No
         cleaned = plain_number(value, convention)
         if cleaned is not None:
             plan.changes.append(
-                Change(_line(row), column.name, value, cleaned, "plain-number", HIGH)
+                Change(_line(row, column), column.name, value, cleaned, "plain-number", HIGH)
             )
             values[row] = cleaned
 
@@ -230,7 +233,7 @@ def rule_iso_date(column: Column, values: list[str], plan: RepairPlan) -> None:
         iso = chosen.strftime("%Y-%m-%d")
         if iso != value:
             plan.changes.append(
-                Change(_line(row), column.name, value, iso, "iso-date", confidence)
+                Change(_line(row, column), column.name, value, iso, "iso-date", confidence)
             )
             values[row] = iso
 
@@ -265,7 +268,7 @@ def rule_canonical_label(column: Column, values: list[str], plan: RepairPlan) ->
         if value in canonical:
             plan.changes.append(
                 Change(
-                    _line(row),
+                    _line(row, column),
                     column.name,
                     value,
                     canonical[value],
@@ -290,7 +293,7 @@ def rule_sentinel_null(column: Column, values: list[str], plan: RepairPlan) -> N
         parsed = parse_number(value)
         if parsed is not None and parsed.value in targets:
             plan.changes.append(
-                Change(_line(row), column.name, value, "", "sentinel-null", MEDIUM)
+                Change(_line(row, column), column.name, value, "", "sentinel-null", MEDIUM)
             )
             values[row] = ""
 
@@ -351,17 +354,11 @@ def plan_repairs(
     grid = [list(column.values) for column in table.columns]
 
     for index, column in enumerate(table.columns):
-        # A repaired file must not make spreadsheet-formula content easier to
-        # execute. The checker deliberately treats leading whitespace before
-        # =, + or @ as risky because spreadsheet imports may trim it. Rewriting
-        # such a column (especially trimming it) can turn a suspicious value
-        # into a directly executable-looking cell, so leave the whole column
-        # unchanged and make the refusal explicit. Numeric/date columns retain
-        # their existing signed-value behaviour and are not formula findings.
-        risky = (
-            column.profile.kind not in (NUMERIC, DATE)
-            and any(is_formula_injection(value) for value in grid[index])
-        )
+        # Protect even predominantly numeric or date columns. A lone formula
+        # among numeric values must not become executable after whitespace
+        # cleanup or normalization. The value-level detector exempts genuine
+        # signed numbers without trusting column-wide type inference.
+        risky = any(is_formula_injection(value) for value in grid[index])
         if risky:
             # Preserve the existing non-mutating refusal checks for this column
             # even though no repair rule is allowed to rewrite it.
@@ -370,8 +367,9 @@ def plan_repairs(
                 Refusal(
                     column.name,
                     "formula-injection",
-                    "This column contains a value beginning with =, + or @, "
-                    "which spreadsheet software may execute as a formula. Sift "
+                    "This column contains a formula-like value (=, +, -, or @, "
+                    "possibly after whitespace), which spreadsheet software "
+                    "may execute as a formula. Sift "
                     "will not rewrite the column because trimming or normalising "
                     "it could make that content easier to execute. Neutralise "
                     "the formula deliberately, then run fix again.",
@@ -400,7 +398,10 @@ def plan_repairs(
         for row_index, row in enumerate(rows):
             key = tuple(row)
             if key in seen:
-                plan.dropped_lines.append(_line(row_index))
+                plan.dropped_lines.append(
+                    table.source_lines[row_index] if row_index < len(table.source_lines)
+                    else _line(row_index)
+                )
                 continue
             seen.add(key)
             kept_rows.append(row)
@@ -409,7 +410,7 @@ def plan_repairs(
 
 
 def write_csv(path: Path, header: list[str], rows: list[list[str]], delimiter: str = ",") -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    with atomic_text_writer(path, newline="") as handle:
         writer = csv.writer(handle, delimiter=delimiter, lineterminator="\n")
         writer.writerow(header)
         writer.writerows(rows)
@@ -419,7 +420,7 @@ def write_log(
     path: Path, plan: RepairPlan, sensitive_columns: set[str] | None = None
 ) -> None:
     sensitive = sensitive_columns or set()
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    with atomic_text_writer(path, newline="") as handle:
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(["line", "column", "rule", "confidence", "before", "after"])
         for change in plan.changes:

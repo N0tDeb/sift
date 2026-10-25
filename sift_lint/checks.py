@@ -150,6 +150,17 @@ def check_header(table: Table, config: Config) -> list[Finding]:
             )
 
     for index, name in enumerate(table.header):
+        if is_formula_injection(name):
+            findings.append(
+                Finding(
+                    "formula-injection",
+                    Severity.WARNING,
+                    f"Column heading {index + 1} begins with a formula-like prefix. "
+                    "Spreadsheet software may execute it as a formula.",
+                    column=name,
+                    detail={"column_index": index, "count": 1},
+                )
+            )
         if is_blank(name):
             findings.append(
                 Finding(
@@ -892,13 +903,12 @@ def check_formula_injection(table: Table, config: Config) -> list[Finding]:
     against whoever opens the export, and it survives every other check here
     because as *data* it is a perfectly ordinary string.
 
-    Restricted to columns that are not numeric so that ordinary signed numbers
-    are never flagged, and `-` is excluded entirely for the same reason.
+    Checked for every column regardless of its inferred type: an injected cell
+    may be the only non-numeric value in an otherwise numeric column. Ordinary
+    signed numbers are excluded by the shared value-level detector.
     """
     findings = []
     for column in table.columns:
-        if column.profile.kind in (NUMERIC, DATE, EMPTY):
-            continue
         risky = [
             value
             for value in column.values
@@ -910,10 +920,10 @@ def check_formula_injection(table: Table, config: Config) -> list[Finding]:
             Finding(
                 "formula-injection",
                 Severity.WARNING,
-                f"{column.name!r} has {plural(len(risky), 'value')} starting with "
-                "=, + or @, which a spreadsheet runs as a formula rather than "
-                "showing as text. Prefix them with an apostrophe before anyone "
-                "opens this in Excel.",
+                f"{column.name!r} has {plural(len(risky), 'value')} with a "
+                "spreadsheet-formula-like prefix (=, +, -, or @). A spreadsheet "
+                "may interpret these as formulas. Review before exporting or "
+                "opening in spreadsheet software.",
                 column=column.name,
                 detail={"column_index": column.index, "count": len(risky)},
                 examples=_samples(risky, config.max_examples),

@@ -33,6 +33,7 @@ class Column:
     key: str
     values: list[str]
     profile: ColumnProfile
+    source_lines: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -43,6 +44,7 @@ class Table:
     n_rows: int
     delimiter: str = ","
     file_findings: list[Finding] = field(default_factory=list)
+    source_lines: list[int] = field(default_factory=list)
 
     def by_key(self, key: str) -> Column | None:
         for column in self.columns:
@@ -56,7 +58,9 @@ class LoadError(Exception):
 
 
 def _sniff_delimiter(sample: str, override: str | None) -> str:
-    if override:
+    if override is not None:
+        if len(override) != 1 or override in "\r\n\0":
+            raise LoadError("delimiter must be one non-newline character")
         return override
     try:
         return csv.Sniffer().sniff(sample, delimiters=DELIMITERS).delimiter
@@ -201,9 +205,13 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
         rows: list[list[str]] = []
         short_rows: list[int] = []
         long_rows: list[int] = []
+        source_lines: list[int] = []
+        previous_end_line = getattr(reader, "line_num", 1)
 
         try:
-            for line_no, row in enumerate(reader, start=2):
+            for logical_no, row in enumerate(reader, start=2):
+                line_no = previous_end_line + 1
+                previous_end_line = getattr(reader, "line_num", logical_no)
                 if not row:
                     continue
                 if len(row) < width:
@@ -213,6 +221,7 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
                     long_rows.append(line_no)
                     row = row[:width]
                 rows.append(row)
+                source_lines.append(line_no)
                 if max_rows is not None and len(rows) >= max_rows:
                     break
         except csv.Error as exc:
@@ -257,6 +266,7 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
                 key=key,
                 values=values,
                 profile=profile_column(name, index, values),
+                source_lines=source_lines,
             )
         )
 
@@ -267,4 +277,5 @@ def load(path: Path, delimiter: str | None = None, max_rows: int | None = None) 
         n_rows=len(rows),
         delimiter=sep,
         file_findings=file_findings,
+        source_lines=source_lines,
     )

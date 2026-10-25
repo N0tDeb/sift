@@ -3,6 +3,32 @@
 Notable user-visible changes to Sift are recorded here. Releases use
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased (post-1.0.0 source changes — not on PyPI yet)
+
+- Batch 1 formula safeguards: recognize risky formula-like cells regardless of
+  inferred column type, including newline and non-breaking-space prefixes;
+  preserve ordinary signed numbers. Refuse newly introduced formula-like CSV
+  output and prohibit Excel formula-to-CSV repair even under `--force`.
+  Read-only Excel inspection reports formulas in the selected worksheet.
+
+- Reject row-limited `fix` writes to prevent truncating a data file; preserve
+  limited reads for `fix --dry-run` previews.
+- Guard every checked reference and loaded configuration file against report
+  or audit output collisions; reject overlapping repaired output and audit log.
+- Treat any unreadable member of a batch check as an operational failure
+  (exit code 2). Honor text, JSON and HTML batch `--output` consistently.
+- Stage text, CSV and audit-log files before replacing a destination, so an
+  interrupted single-file write preserves the previous destination.
+- Reject non-finite/overflowing numeric inputs in aggregate-impact calculations
+  with a controlled diagnostic instead of an uncaught exception.
+- Reject invalid delimiter overrides and record physical source line numbers
+  for CSV repairs containing multiline quoted fields.
+- Use absolute GitHub links in the package README so documentation and images
+  resolve correctly on PyPI, and clarify that `--log` is optional.
+
+These changes are prepared for review and cross-platform CI. The published
+`v1.0.0` artifacts remain unchanged.
+
 ## 1.0.0
 
 ### Included in the first stable distribution

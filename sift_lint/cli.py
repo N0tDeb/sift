@@ -21,6 +21,7 @@ from .checks import run_checks, sensitive_columns
 from .config import FAIL_ON_LEVELS, Config, ConfigError, find_config, load_config
 from .drift import compare
 from .findings import redact_sensitive_findings
+from .inference import is_formula_injection
 from .impact import (
     ImpactError,
     duplicate_impact,
@@ -28,16 +29,18 @@ from .impact import (
     prepare_repaired_rows,
     sum_impact,
 )
+from .inference import is_formula_injection
 from .impact import (
     render as render_impact,
 )
 from .initialize import build as build_config
 from .initialize import describe, summarise
 from .loading import LoadError, Table
+from .output import atomic_write_text
 from .profiling import ColumnProfile
 from .references import Reference, ReferenceError, check_reference
-from .repair import HIGH, MEDIUM, plan_repairs, render_plan, write_csv, write_log
-from .reporting import render_json, render_text, summarize, write_report
+from .repair import HIGH, MEDIUM, Refusal, plan_repairs, render_plan, write_csv, write_log
+from .reporting import render_batch_html, render_json, render_text, summarize, write_report
 from .sources import EXCEL_SUFFIXES, PARQUET_SUFFIXES, SUPPORTED, discover, load_any
 from .text import fmt_number, plural, terminal_safe
 
@@ -49,7 +52,7 @@ NON_CSV_SUFFIXES = EXCEL_SUFFIXES | PARQUET_SUFFIXES | {".xls"}
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sift-lint",
-        description="Find the problems in a CSV before they reach your pipeline.",
+        description="Find data-quality problems in CSV, Excel and Parquet files.",
     )
     parser.add_argument("--version", action="version", version=f"sift-lint {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -101,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     common(diff_cmd)
 
     fix_cmd = sub.add_parser(
-        "fix", help="Write a repaired copy, and an audit log of every change."
+        "fix", help="Write a repaired copy; use --log to record individual changes."
     )
     fix_cmd.add_argument("path", type=Path)
     fix_cmd.add_argument("--output", type=Path, help="Where to write the repaired file.")
@@ -122,8 +125,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help=(
-            "Rewrite even when the source has unresolved rewrite hazards "
-            "(for example ragged rows or spreadsheet-formula content)."
+            "Accept certain unresolved CSV rewrite hazards (for example ragged "
+            "rows or existing formula-like values). Never overrides Excel "
+            "formula-loss protection or newly introduced formula hazards."
         ),
     )
     fix_cmd.add_argument("--delimiter")
@@ -169,11 +173,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_config(args: argparse.Namespace, anchor: Path) -> Config:
-    path = args.config
+def effective_config_path(args: argparse.Namespace, anchor: Path) -> Path | None:
+    """Return the config file read by an invocation, if any."""
+    path = getattr(args, "config", None)
     if path is None and not getattr(args, "no_config", False):
         path = find_config(anchor)
-    config = load_config(path)
+    return path
+
+
+def resolve_config(args: argparse.Namespace, anchor: Path) -> Config:
+    config = load_config(effective_config_path(args, anchor))
 
     if getattr(args, "key", None):
         config.key = args.key
@@ -276,7 +285,7 @@ def check_many(
         for reference in references:
             try:
                 findings.extend(check_reference(table, reference, config, reference_load))
-            except ReferenceError as exc:
+            except (ReferenceError, LoadError, OSError) as exc:
                 failures.append((target, str(exc)))
         findings = redact_sensitive_findings(findings, sensitive_columns(table))
         results.append((target, findings))
@@ -295,37 +304,40 @@ def check_many(
             "unreadable": [{"file": str(p), "error": e} for p, e in failures],
         }
         body = json.dumps(payload, indent=2, default=str)
-        if args.output:
-            args.output.write_text(body, encoding="utf-8")
-            print(f"Wrote {terminal_safe(args.output)}")
-        else:
-            print(body)
+    elif args.format == "html":
+        body = render_batch_html(results, failures)
     else:
         display_paths = {path: terminal_safe(path) for path, _ in results}
-        width = max(len(display_paths[path]) for path, _ in results) if results else 20
+        width = max((len(name) for name in display_paths.values()), default=20)
+        lines: list[str] = []
         for path, findings in results:
             counts = summarize(findings)
             tally = ", ".join(
                 f"{counts[k]} {k}" for k in ("error", "warning", "info") if counts[k]
             )
-            print(f"{display_paths[path]:<{width}}  {tally or 'clean'}")
+            lines.append(f"{display_paths[path]:<{width}}  {tally or 'clean'}")
         for path, error in failures:
             safe_path = terminal_safe(path)
-            width = max(width, len(safe_path))
-            print(f"{safe_path:<{width}}  unreadable: {terminal_safe(error)}")
+            lines.append(f"{safe_path:<{width}}  unreadable: {terminal_safe(error)}")
 
         spread: Counter = Counter()
         for _, findings in results:
             spread.update({f.code for f in findings})
         shared = [(code, n) for code, n in spread.most_common() if n > 1]
         if shared:
-            print()
-            print("Across files:")
+            lines.extend(("", "Across files:"))
             for code, count in shared[:8]:
-                print(f"  {code:<26} {count} of {len(results)} files")
+                lines.append(f"  {code:<26} {count} of {len(results)} files")
+        body = "\n".join(lines)
 
-    code = max(result_codes, default=0)
-    return 2 if failures and not results else code
+    if args.output:
+        atomic_write_text(args.output, body)
+        print(f"Wrote {terminal_safe(args.output)}")
+    else:
+        print(body)
+
+    # Even one unreadable file means the requested batch was not fully checked.
+    return 2 if failures else max(result_codes, default=0)
 
 
 def _run_profile(args: argparse.Namespace) -> int:
@@ -369,7 +381,7 @@ def _run_init(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    args.output.write_text(body, encoding="utf-8")
+    atomic_write_text(args.output, body)
     print()
     print(f"Wrote {terminal_safe(args.output)}. Read it, then commit it.")
     return 0
@@ -410,8 +422,18 @@ def _run_impact(args: argparse.Namespace) -> int:
 
 
 def _run_fix(args: argparse.Namespace) -> int:
+    # A limited read is valid for inspection but must never be written as though
+    # it contained the full file. That would silently discard the unread tail.
+    if args.max_rows is not None and not args.dry_run:
+        print("sift-lint: --max-rows is only supported with --dry-run for fix.",
+              file=sys.stderr)
+        return 2
     config = resolve_config(args, args.path)
+    config_path = effective_config_path(args, args.path)
+    guard_output(args.output, config_path)
+    guard_output(args.log, config_path)
     table = load_any(args.path, args.delimiter, args.sheet, args.max_rows)
+    excel_formulas = [f for f in table.file_findings if f.code == "excel-formulas"]
     ragged = [f for f in table.file_findings if f.code == "ragged-rows"]
     if ragged and not args.force:
         # Refusing here rather than writing a plausible-looking file: the
@@ -444,9 +466,64 @@ def _run_fix(args: argparse.Namespace) -> int:
 
     guard_output(args.output, args.path)
     guard_output(args.log, args.path)
+    guard_output(args.output, args.log)
 
     plan, rows = plan_repairs(table, config, args.min_confidence, args.drop_duplicates)
     destination = str(args.output) if args.output else "(dry run)"
+
+    if excel_formulas:
+        # A general --force switch is not informed consent to destroy Excel
+        # formulas (including formulas with no cached value). Inspection and
+        # --dry-run remain available, with a visible explanation.
+        plan.refusals.append(
+            Refusal(None, "excel-formulas", excel_formulas[0].message)
+        )
+        if not args.dry_run:
+            print(render_plan(table, plan, destination))
+            print(
+                "sift-lint: refusing to export a selected Excel sheet containing "
+                "formulas, even with --force. Select a formula-free sheet or "
+                "prepare an explicit values-only export separately.",
+                file=sys.stderr,
+            )
+            return 2
+
+    # Even if an individual rule unexpectedly introduces a new formula-like
+    # value, it must never reach a CSV output. This final-state invariant is
+    # independent of --force; existing risky inputs can only be preserved.
+    # No need to materialize a second copy of large columns for this check.
+    # Dropped rows no longer match their old positions; for that optional mode
+    # validate the recorded individual changes instead.
+    if args.drop_duplicates:
+        introduced = any(
+            is_formula_injection(change.after) and not is_formula_injection(change.before)
+            for change in plan.changes
+        )
+    else:
+        introduced = any(
+            is_formula_injection(after) and not is_formula_injection(before)
+            for index, column in enumerate(table.columns)
+            for before, after in zip(column.values, (row[index] for row in rows), strict=True)
+        )
+
+    # The header is written as the first CSV record, so it needs protection as
+    # much as the data. A pre-existing risky header is only exported via force.
+    if any(is_formula_injection(name) for name in table.header):
+        plan.refusals.append(
+            Refusal(None, "formula-injection", "The source header contains a "
+                    "formula-like field name. It is preserved, but is unsafe "
+                    "to open as a spreadsheet without explicit acceptance.")
+        )
+    header_hazard = any(is_formula_injection(name) for name in table.header)
+    introduced = introduced or (header_hazard and not args.force)
+    if introduced and not args.dry_run:
+        print(render_plan(table, plan, destination))
+        print(
+            "sift-lint: refusing newly introduced formula-like CSV content or "
+            "an unsafe header. Correct the source or repair policy first.",
+            file=sys.stderr,
+        )
+        return 2
 
     formula_refusals = [
         refusal for refusal in plan.refusals if refusal.rule == "formula-injection"
@@ -500,6 +577,9 @@ def _run_check(args: argparse.Namespace) -> int:
 
     for target in targets:
         guard_output(args.output, target)
+        guard_output(args.output, effective_config_path(args, target))
+    for reference in references:
+        guard_output(args.output, reference.path)
 
     if len(targets) == 1:
         config = resolve_config(args, targets[0])
@@ -525,6 +605,7 @@ def _run_check(args: argparse.Namespace) -> int:
 def _run_diff(args: argparse.Namespace) -> int:
     config = resolve_config(args, args.current)
     guard_output(args.output, args.baseline, args.current)
+    guard_output(args.output, effective_config_path(args, args.current))
     baseline = load_any(args.baseline, args.delimiter, args.sheet, args.max_rows)
     current = load_any(args.current, args.delimiter, args.sheet, args.max_rows)
     findings = redact_sensitive_findings(
@@ -546,7 +627,7 @@ def _run_diff(args: argparse.Namespace) -> int:
     else:
         report = render_text(view, findings)
     if args.output:
-        args.output.write_text(report, encoding="utf-8")
+        atomic_write_text(args.output, report)
         print(f"Wrote {terminal_safe(args.output)} ({len(findings)} findings).")
     else:
         print(report)

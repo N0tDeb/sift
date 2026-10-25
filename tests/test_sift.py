@@ -1128,11 +1128,18 @@ def test_excel_max_rows_stops_worksheet_iteration_early(tmp_path, monkeypatch):
 
     class Worksheet:
         def iter_rows(self, values_only=False):
-            assert values_only is True
+            if not values_only:
+                # The independent formula-safety scan deliberately examines
+                # the complete selected worksheet, including beyond the
+                # bounded data read. Its cells contain only metadata here.
+                from types import SimpleNamespace
+                for _ in range(4):
+                    yield (SimpleNamespace(data_type="s"),)
+                return
             yield ("Quarterly Export", None)
             yield ("id", "value")
             yield ("1", "one")
-            raise AssertionError("Excel reader consumed rows past max_rows")
+            raise AssertionError("Excel cached-value reader exceeded max_rows")
 
     class Workbook:
         sheetnames = ["Orders"]
@@ -1293,6 +1300,19 @@ def test_excel_partial_dates_are_an_error(tmp_path):
     )
     table = load_any(path)
     assert "partial-excel-dates" in {f.code for f in table.file_findings}
+
+
+def test_excel_formulas_are_detected_even_without_cached_results(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    source = tmp_path / "formulas.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["id", "total"])
+    sheet.append([1, "=2+3"])
+    workbook.save(source)
+    workbook.close()
+    table = load_any(source)
+    assert "excel-formulas" in {finding.code for finding in table.file_findings}
 
 
 def test_excel_formula_errors_are_reported(tmp_path):

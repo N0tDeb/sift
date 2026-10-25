@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from math import isfinite
 
 from .config import Config
 from .inference import is_blank, parse_number
@@ -103,9 +104,14 @@ def _coerce(values: list[str]) -> tuple[list[float], int]:
         if is_blank(value):
             continue
         try:
-            kept.append(float(value))
-        except ValueError:
+            number = float(value)
+        except (ValueError, OverflowError):
             dropped += 1
+            continue
+        if not isfinite(number):
+            raise ImpactError("Non-finite numeric value (NaN or infinity) prevents "
+                              "a trustworthy aggregate; correct the source data.")
+        kept.append(number)
     return kept, dropped
 
 
@@ -140,6 +146,10 @@ def sum_impact(
         if parsed is not None:
             after.append(parsed.value)
 
+    if not isfinite(sum(coerced)) or not isfinite(sum(after)):
+        raise ImpactError("Non-finite SUM result: the aggregate exceeds the supported "
+                          "numeric range. Inspect the source data before interpreting it.")
+
     impact = SumImpact(
         column=column,
         loads_as_number=loads_as_number,
@@ -149,6 +159,9 @@ def sum_impact(
         repaired_rows=len(after),
         total_rows=len(raw),
     )
+
+    if not isfinite(impact.difference):
+        raise ImpactError("Non-finite difference between aggregates; numeric overflow.")
 
     # Attribute the gap. Each raw value falls into exactly one bucket, so the
     # causes add up to the difference rather than merely gesturing at it.
@@ -221,6 +234,9 @@ def group_impact(
     ]
     merges.sort(key=lambda item: -item[2])
 
+    if not isfinite(misplaced) or not isfinite(sum(weights)):
+        raise ImpactError("Non-finite GROUP BY aggregate; numeric overflow.")
+
     return GroupImpact(
         column=column,
         measure=measure,
@@ -260,6 +276,8 @@ def duplicate_impact(
             parsed = parse_number(values[index]) if not is_blank(values[index]) else None
             if parsed:
                 amount += parsed.value
+    if not isfinite(amount):
+        raise ImpactError("Non-finite duplicate aggregate; numeric overflow.")
     return DuplicateImpact(len(extra_indexes), amount, measure)
 
 

@@ -327,7 +327,8 @@ Excel support is provided through the optional OpenPyXL dependency. Sift reads o
 - preamble rows above a detected header;
 - partial Excel date typing;
 - broken formula results;
-- unread sheets.
+- original formula cells in the selected sheet (a repair blocker even with `--force`);
+- unread sheets, including explicitly selected-sheet operations.
 
 A single-column worksheet is treated as valid data rather than being mistaken for a human-readable preamble.
 
@@ -751,9 +752,9 @@ This property also reaches repair audit logs and public drift output.
 
 ### 18.3 Spreadsheet-formula risk
 
-Values beginning with spreadsheet-executable prefixes such as `=`, `+` or `@` are detected. Repair does not rewrite those columns as if the data were ordinary text.
+Formula-like values starting with `=`, `+`, `-`, or `@` after optional whitespace are detected in **every** column regardless of inferred type; genuine signed numbers are exempt. Formula-like column headings are also checked. Repair does not rewrite hazardous columns, and a final output check rejects newly introduced formula risks even when `--force` is supplied.
 
-By default, `sift-lint fix` refuses to write an output while unresolved rewrite hazards remain. `--dry-run` previews the refusal. `--force` is an explicit acceptance of the unresolved risk and hazardous columns remain preserved rather than silently transformed.
+By default, `sift-lint fix` refuses to write an output while unresolved rewrite hazards remain. `--dry-run` previews the refusal. `--force` accepts certain existing CSV risks and preserves their contents rather than normalizing them. Excel `.xlsx`/`.xlsm` formula cells in the **selected** sheet block CSV repair even with `--force`, because cached values are not guaranteed and the workbook formulas themselves would be lost. Formulas on unrelated sheets do not block conversion of a formula-free selected sheet; those sheets are not exported.
 
 ### 18.4 HTML escaping
 
@@ -789,7 +790,7 @@ The repository's real-data notes record an 18 MB, 126,000-row case dropping from
 
 ### Bounded parsing
 
-`--max-rows` stops row ingestion after the requested positive limit. Excel worksheet iteration and Parquet reads are likewise bounded rather than reading the entire source and slicing afterward.
+`--max-rows` stops data-row ingestion after the requested positive limit. Parquet batches and Excel cached-value ingestion are bounded; Excel's separate formula-safety scan still checks the *entire selected sheet*, including rows outside the sample, to avoid missing formulas that would otherwise be lost during a later conversion.
 
 ### Repair snapshot reuse
 

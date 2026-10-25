@@ -123,6 +123,13 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
     findings: list[Finding] = []
     try:
         workbook = load_workbook(path, read_only=True, data_only=True)
+        # Data-only mode can silently yield None for a formula with no cached
+        # result. The formula-view is needed to detect possible data loss.
+        try:
+            formula_workbook = load_workbook(path, read_only=True, data_only=False)
+        except Exception:
+            workbook.close()
+            raise
     except Exception as exc:  # openpyxl raises several unrelated types
         raise LoadError(
             f"{path.name} could not be read as a workbook ({exc}). If it is "
@@ -135,20 +142,43 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
         if sheet is not None:
             if sheet not in names:
                 raise LoadError(f"No sheet named {sheet!r}. Sheets: {', '.join(names)}")
-            worksheet = workbook[sheet]
+            selected_name = sheet
         else:
-            worksheet = workbook[names[0]]
-            if len(names) > 1:
-                findings.append(
-                    Finding(
-                        "unread-sheets",
-                        Severity.INFO,
-                        f"Read sheet {names[0]!r}. This workbook has "
-                        f"{plural(len(names) - 1, 'other sheet')} that nothing checked: "
-                        + ", ".join(repr(n) for n in names[1:]),
-                        detail={"sheets": names},
-                    )
+            selected_name = names[0]
+        worksheet = workbook[selected_name]
+        if len(names) > 1:
+            remaining = [name for name in names if name != selected_name]
+            findings.append(
+                Finding(
+                    "unread-sheets",
+                    Severity.INFO,
+                    f"Read sheet {selected_name!r}. This workbook has "
+                    f"{plural(len(remaining), 'other sheet')} not inspected: "
+                    + ", ".join(repr(name) for name in remaining)
+                    + ". Formulas on those sheets are not checked or exported.",
+                    detail={"sheets": names},
                 )
+            )
+
+        # Inspect the entire selected sheet, including rows outside a
+        # --max-rows sample and any preamble/header cells. A bounded preview
+        # must not incorrectly claim that a later formula does not exist.
+        formula_count = sum(
+            1 for cells in formula_workbook[selected_name].iter_rows()
+            for cell in cells if cell.data_type == "f"
+        )
+        if formula_count:
+            findings.append(
+                Finding(
+                    "excel-formulas",
+                    Severity.WARNING,
+                    f"Selected Excel sheet {selected_name!r} contains "
+                    f"{plural(formula_count, 'formula')}. CSV cannot preserve "
+                    "workbook formulas or reliably preserve their calculated "
+                    "values; fix refuses this sheet.",
+                    detail={"sheet": selected_name, "count": formula_count},
+                )
+            )
 
         row_iter = iter(worksheet.iter_rows(values_only=True))
 
@@ -190,6 +220,7 @@ def load_excel(path: Path, sheet: str | None = None, max_rows: int | None = None
                 break
     finally:
         workbook.close()
+        formula_workbook.close()
 
     width = len(raw_header)
     header = [_text(cell).strip() or f"column_{i + 1}" for i, cell in enumerate(raw_header)]
