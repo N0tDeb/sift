@@ -9,6 +9,9 @@ from pathlib import Path
 import pytest
 
 from sift_lint import __version__
+from sift_lint.findings import Finding, Severity
+from sift_lint.loading import load
+from sift_lint.reporting import render_batch_html, render_html
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -116,3 +119,60 @@ def test_documentation_relative_links_resolve() -> None:
                 if not (doc.parent / link).resolve().exists():
                     failures.append(f"{doc.relative_to(ROOT)}: {link}")
     assert not failures, "Broken relative links: " + ", ".join(failures)
+
+
+# Report counts are prose in HTML: check zero, singular, and plural for each level.
+
+def _html_count_table(tmp_path: Path, rows: int, columns: int):
+    path = tmp_path / "counts.csv"
+    path.write_text(
+        ",".join(f"column_{index}" for index in range(columns))
+        + "\n"
+        + (",".join("value" for _ in range(columns)) + "\n") * rows,
+        encoding="utf-8",
+    )
+    return load(path)
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+@pytest.mark.parametrize("severity,word", [
+    (Severity.ERROR, "error"),
+    (Severity.WARNING, "warning"),
+    (Severity.INFO, "note"),
+])
+def test_single_report_html_count_grammar(tmp_path, count, severity, word):
+    table = _html_count_table(tmp_path, rows=1, columns=1)
+    findings = [
+        Finding(code=f"test-{i}", severity=severity, message="sample")
+        for i in range(count)
+    ]
+    output = render_html(table, findings)
+    expected = word if count == 1 else word + "s"
+    assert f"<b>{count}</b> {expected}" in output
+    assert "across 1 row and 1 column." in output
+
+
+@pytest.mark.parametrize("rows,columns", [(0, 1), (1, 1), (2, 2)])
+def test_html_row_column_counts(tmp_path, rows, columns):
+    table = _html_count_table(tmp_path, rows=rows, columns=columns)
+    output = render_html(table, [])
+    r = "row" if rows == 1 else "rows"
+    c = "column" if columns == 1 else "columns"
+    assert f"across {rows} {r} and {columns} {c}." in output
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+@pytest.mark.parametrize("severity,word", [
+    (Severity.ERROR, "error"),
+    (Severity.WARNING, "warning"),
+    (Severity.INFO, "note"),
+])
+def test_batch_report_html_count_grammar(tmp_path, count, severity, word):
+    findings = [
+        Finding(code=f"test-{i}", severity=severity, message="sample")
+        for i in range(count)
+    ]
+    output = render_batch_html([(tmp_path / "input.csv", findings)], failures=[])
+    expected = word if count == 1 else word + "s"
+    assert f"{count} {expected}" in output
+    assert "<b>" not in output

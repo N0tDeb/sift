@@ -252,6 +252,21 @@ footer {
 """
 
 
+def _html_count(count: int, singular: str, *, bold: bool = False) -> str:
+    """Format a trusted count with correct singular/plural wording for HTML."""
+    value = f"{count:,}"
+    if bold:
+        value = f"<b>{value}</b>"
+    return f"{value} {singular if count == 1 else singular + 's'}"
+
+
+def _html_finding_tally(summary: dict[str, int], *, bold: bool = False) -> str:
+    return ", ".join(
+        _html_count(summary[key], label, bold=bold)
+        for key, label in (("error", "error"), ("warning", "warning"), ("info", "note"))
+    )
+
+
 def render_html(table: Table, findings: list[Finding]) -> str:
     summary = summarize(findings)
     esc = html.escape
@@ -305,9 +320,9 @@ def render_html(table: Table, findings: list[Finding]) -> str:
         )
 
     tally = (
-        f"<b>{summary['error']}</b> errors, <b>{summary['warning']}</b> warnings, "
-        f"<b>{summary['info']}</b> notes across {table.n_rows:,} rows and "
-        f"{len(table.columns)} columns."
+        f"{_html_finding_tally(summary, bold=True)} across "
+        f"{plural(table.n_rows, 'row')} and "
+        f"{plural(len(table.columns), 'column')}."
     )
 
     return f"""<!doctype html>
@@ -334,10 +349,7 @@ def render_batch_html(results: list[tuple[Path, list[Finding]]],
     sections = []
     for path, findings in results:
         summary = summarize(findings)
-        heading = (
-            f"{summary['error']} errors, {summary['warning']} warnings, "
-            f"{summary['info']} notes"
-        )
+        heading = _html_finding_tally(summary)
         entries = "".join(
             f'<div class="finding" data-sev="{f.severity.value}">'
             f'<div class="code">{esc(f.code)}</div>'
