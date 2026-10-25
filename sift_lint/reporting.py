@@ -22,9 +22,9 @@ import textwrap
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from .output import atomic_write_text
 from .findings import Finding, Severity, sort_findings
 from .loading import Table
+from .output import atomic_write_text
 from .text import plural, terminal_safe
 
 ANSI = {
@@ -334,7 +334,10 @@ def render_batch_html(results: list[tuple[Path, list[Finding]]],
     sections = []
     for path, findings in results:
         summary = summarize(findings)
-        heading = f"{summary['error']} errors, {summary['warning']} warnings, {summary['info']} notes"
+        heading = (
+            f"{summary['error']} errors, {summary['warning']} warnings, "
+            f"{summary['info']} notes"
+        )
         entries = "".join(
             f'<div class="finding" data-sev="{f.severity.value}">'
             f'<div class="code">{esc(f.code)}</div>'

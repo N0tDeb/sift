@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, TextIO
+from typing import TextIO
 
 
 @contextmanager

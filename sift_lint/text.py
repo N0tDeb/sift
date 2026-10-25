@@ -7,8 +7,8 @@ careful, and a linter that looks careless does not get trusted.
 
 from __future__ import annotations
 
-import unicodedata
 import math
+import unicodedata
 
 _BIDI_FORMAT_CONTROLS = {
     "\u061c",  # Arabic Letter Mark

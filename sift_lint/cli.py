@@ -21,18 +21,15 @@ from .checks import run_checks, sensitive_columns
 from .config import FAIL_ON_LEVELS, Config, ConfigError, find_config, load_config
 from .drift import compare
 from .findings import redact_sensitive_findings
-from .inference import is_formula_injection
 from .impact import (
     ImpactError,
     duplicate_impact,
     group_impact,
     prepare_repaired_rows,
+    render as render_impact,
     sum_impact,
 )
 from .inference import is_formula_injection
-from .impact import (
-    render as render_impact,
-)
 from .initialize import build as build_config
 from .initialize import describe, summarise
 from .loading import LoadError, Table

@@ -10,9 +10,9 @@ a zip code, the dollar sign that turns a number into a string, the fact that
 from __future__ import annotations
 
 import re
-from math import isfinite
 from datetime import datetime
 from functools import lru_cache
+from math import isfinite
 
 # Strings people type when they mean "no value". A loader reads them as text,
 # so the column silently stops being numeric and the nulls stop being null.

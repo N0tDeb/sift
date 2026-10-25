@@ -201,9 +201,9 @@ def test_formatter_handles_non_finite_values_safely():
 
 
 def test_multiline_csv_repair_log_uses_physical_source_line(tmp_path):
+    from sift_lint.config import Config
     from sift_lint.loading import load
     from sift_lint.repair import plan_repairs
-    from sift_lint.config import Config
     src = tmp_path / 'multiline.csv'
     src.write_text('id,note\n1,"hello\nworld"\n2," West "\n', encoding='utf-8')
     plan, _ = plan_repairs(load(src), Config())
