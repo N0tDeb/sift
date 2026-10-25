@@ -34,3 +34,19 @@ ignore = []
 [sift.ignore_columns]
 # whitespace = ["notes", "description"]
 # high-cardinality = ["email"]
+
+# Optional explicit role/validation policies (uncomment as needed):
+# [sift.columns."postal_code"]
+# role = "identifier"
+# required = true
+#
+# [sift.columns."amount"]
+# role = "measure"
+# min_value = 0
+#
+# [sift.columns."status"]
+# role = "category"
+# allowed_values = ["open", "closed", "pending"]
+#
+# [sift.columns."access_code"]
+# role = "sensitive"

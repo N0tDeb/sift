@@ -85,12 +85,12 @@ The definitive project state has the following properties:
 | Python requirement | `>=3.11` |
 | Mandatory runtime dependencies | None |
 | Excel extra | `openpyxl>=3.1` |
-| Parquet extra | `pyarrow>=14.0` |
+| Parquet extra | `pyarrow>=14.0.1` |
 | Build backend | Hatchling |
 | License | MIT |
 | Python source modules | 17 |
-| Registered check functions | 19 |
-| Stable documented finding codes | 64 |
+| Registered check functions | 20 |
+| Stable documented finding codes | 70 |
 | CLI subcommands | 6 |
 | Verification | Run the latest GitHub Actions CI matrix |
 | Known-corruption benchmark | 28/28 detected |
@@ -380,7 +380,7 @@ Profiles track enough evidence for later checks to decide whether a column is nu
 
 ## 9. Checks and findings
 
-Sift has **19 registered check functions** and **64 stable documented finding codes**.
+Sift has **20 registered check functions** and **70 stable documented finding codes**.
 
 The codes are grouped in [`CODES.md`](../CODES.md) as follows:
 
@@ -391,11 +391,12 @@ The codes are grouped in [`CODES.md`](../CODES.md) as follows:
 | Dates | 7 |
 | Missing data | 4 |
 | Values | 6 |
+| Explicit column policies | 6 |
 | Keys and references | 8 |
 | Sensitive data | 2 |
-| Excel and Parquet | 5 |
+| Excel and Parquet | 6 |
 | Drift (`sift-lint diff`) | 10 |
-| **Total** | **63** |
+| **Total** | **70** |
 
 ### Registered check functions
 
@@ -419,7 +420,8 @@ The check registry covers:
 16. cardinality;
 17. spreadsheet-formula risk;
 18. sensitive data;
-19. encoding/mojibake-style value problems.
+19. encoding/mojibake-style value problems;
+20. opt-in declarative per-column validation policies.
 
 ### Finding collapse
 
@@ -450,6 +452,22 @@ ignore = []
 
 [sift.ignore_columns]
 ```
+
+### Explicit column policies (opt-in)
+
+Under `[sift.columns."column name"]`, declare an optional semantic `role`:
+`identifier`, `measure`, `category`, `date`, `text`, or `sensitive`.
+Identifier and sensitive roles block automatic cell-value rewriting; sensitive
+also suppresses actual values in diagnostics, including drift and impact output.
+Non-measure roles skip outlier and median-shift statistics, and an explicit
+`measure` can override the usual identifier-name heuristic.
+
+Optional validation fields are `required = true`, an exact/case-sensitive
+`allowed_values = ["..."]` list, and numeric `min_value`/`max_value`.
+Missing columns or required values and invalid enum/range values are errors.
+Sift refuses to guess numeric bounds when a locale is undecidable.
+Rules don't change the parsed data and default configurations behave as before.
+Refer to the full sample in [`README.md`](../README.md).
 
 ### Validation rules
 

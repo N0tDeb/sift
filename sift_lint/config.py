@@ -20,6 +20,19 @@ CONFIG_NAMES = ("sift.toml", ".sift.toml")
 FAIL_ON_LEVELS = ("error", "warning", "info", "none")
 
 _RATIOS = ("null_warn", "null_error", "outlier_share")
+COLUMN_ROLES = ("identifier", "measure", "category", "date", "text", "sensitive")
+_COLUMN_FIELDS = {"role", "required", "allowed_values", "min_value", "max_value"}
+
+
+@dataclass(frozen=True)
+class ColumnPolicy:
+    """Opt-in semantics and validation requirements for one named column."""
+
+    role: str | None = None
+    required: bool = False
+    allowed_values: tuple[str, ...] | None = None
+    min_value: float | None = None
+    max_value: float | None = None
 
 
 class ConfigError(Exception):
@@ -46,6 +59,15 @@ class Config:
     # code -> list of named columns exempt from it; use `ignore` for global exemptions.
     ignore_columns: dict[str, list[str]] = field(default_factory=dict)
     fail_on: str = "error"
+    columns: dict[str, ColumnPolicy] = field(default_factory=dict)
+
+    def policy(self, name: str) -> ColumnPolicy:
+        return self.columns.get(name, ColumnPolicy())
+
+    def column_policy(self, name: str, key: str) -> ColumnPolicy:
+        # A generated key can identify one duplicate header, while the raw
+        # name remains a convenient policy for ordinary unique columns.
+        return self.columns.get(key, self.policy(name))
 
     def silenced(self, code: str, column: str | None) -> bool:
         if code in self.ignore:
@@ -155,4 +177,48 @@ def load_config(path: Path | None) -> Config:
         raise ConfigError(f"{path}: ignore_columns must be a table of code = [columns].")
     for code in columns:
         config.ignore_columns[code] = _string_list(columns, code, path)
+
+    policies = section.get("columns", {})
+    if not isinstance(policies, dict):
+        raise ConfigError(f"{path}: columns must be a table of column policies.")
+    for name, options in policies.items():
+        if not name or not isinstance(options, dict):
+            raise ConfigError(f"{path}: every column policy needs a name and table.")
+        unknown = set(options) - _COLUMN_FIELDS
+        if unknown:
+            raise ConfigError(f"{path}: columns.{name}: unknown fields {sorted(unknown)!r}.")
+        role = options.get("role")
+        if role is not None and role not in COLUMN_ROLES:
+            raise ConfigError(
+                f"{path}: columns.{name}.role must be one of {', '.join(COLUMN_ROLES)}."
+            )
+        required = options.get("required", False)
+        if not isinstance(required, bool):
+            raise ConfigError(f"{path}: columns.{name}.required must be boolean.")
+        allowed = options.get("allowed_values")
+        if allowed is not None:
+            if not isinstance(allowed, list) or not allowed or not all(
+                isinstance(v, str) for v in allowed
+            ):
+                raise ConfigError(
+                    f"{path}: columns.{name}.allowed_values must be a nonempty list of strings."
+                )
+            if len(set(allowed)) != len(allowed):
+                raise ConfigError(f"{path}: columns.{name}.allowed_values repeats a value.")
+        minimum = _number(options, "min_value", path) if "min_value" in options else None
+        maximum = _number(options, "max_value", path) if "max_value" in options else None
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ConfigError(f"{path}: columns.{name}: min_value exceeds max_value.")
+        if (minimum is not None or maximum is not None) and role not in (None, "measure"):
+            raise ConfigError(
+                f"{path}: columns.{name}: numeric bounds require role = 'measure' "
+                "or no explicit role."
+            )
+        config.columns[name] = ColumnPolicy(
+            role=role,
+            required=required,
+            allowed_values=tuple(allowed) if allowed is not None else None,
+            min_value=minimum,
+            max_value=maximum,
+        )
     return config

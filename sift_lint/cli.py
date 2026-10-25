@@ -171,6 +171,8 @@ def build_parser() -> argparse.ArgumentParser:
     profile_cmd.add_argument("--sheet")
     profile_cmd.add_argument("--delimiter")
     profile_cmd.add_argument("--max-rows", type=int)
+    profile_cmd.add_argument("--config", type=Path)
+    profile_cmd.add_argument("--no-config", action="store_true")
 
     return parser
 
@@ -289,7 +291,7 @@ def check_many(
                 findings.extend(check_reference(table, reference, config, reference_load))
             except (ReferenceError, LoadError, OSError) as exc:
                 failures.append((target, str(exc)))
-        findings = redact_sensitive_findings(findings, sensitive_columns(table))
+        findings = redact_sensitive_findings(findings, sensitive_columns(table, config))
         results.append((target, findings))
         result_codes.append(exit_code(findings, config))
 
@@ -349,7 +351,8 @@ def _run_profile(args: argparse.Namespace) -> int:
         f"{plural(len(table.columns), 'column')}"
     )
     print()
-    private = sensitive_columns(table)
+    config = resolve_config(args, args.path)
+    private = sensitive_columns(table, config)
     for column in table.columns:
         print(_profile_row(column.profile, sensitive=column.name in private))
     return 0
@@ -422,7 +425,7 @@ def _run_impact(args: argparse.Namespace) -> int:
     duplicates = duplicate_impact(
         table, config, args.sum, repaired_rows=repaired_rows
     )
-    private = sensitive_columns(table)
+    private = sensitive_columns(table, config)
     print(render_impact(
         table, total, groups, duplicates,
         redact_groups=args.group_by in private,
@@ -484,7 +487,7 @@ def _run_fix(args: argparse.Namespace) -> int:
         )
 
     plan, rows = plan_repairs(table, config, args.min_confidence, args.drop_duplicates)
-    private = sensitive_columns(table)
+    private = sensitive_columns(table, config)
     destination = str(args.output) if args.output else "(dry run)"
 
     if excel_formulas:
@@ -607,7 +610,7 @@ def _run_check(args: argparse.Namespace) -> int:
         findings = run_checks(table, config)
         for reference in references:
             findings.extend(check_reference(table, reference, config, reference_load))
-        findings = redact_sensitive_findings(findings, sensitive_columns(table))
+        findings = redact_sensitive_findings(findings, sensitive_columns(table, config))
         report = write_report(table, findings, args.format, args.output)
         if args.output:
             summary = summarize(findings)
@@ -630,7 +633,7 @@ def _run_diff(args: argparse.Namespace) -> int:
     current = load_any(args.current, args.delimiter, args.sheet, args.max_rows)
     findings = redact_sensitive_findings(
         compare(baseline, current, config),
-        sensitive_columns(baseline) | sensitive_columns(current)
+        sensitive_columns(baseline, config) | sensitive_columns(current, config)
     )
     view = Table(
         path=current.path,

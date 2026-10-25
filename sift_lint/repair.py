@@ -102,6 +102,7 @@ class RepairPlan:
     refusals: list[Refusal] = field(default_factory=list)
     dropped_lines: list[int] = field(default_factory=list)
     dropped_rows: list[DroppedRow] = field(default_factory=list)
+    private_columns: set[str] = field(default_factory=set)
 
     def by_rule(self) -> dict[str, list[Change]]:
         grouped: dict[str, list[Change]] = defaultdict(list)
@@ -372,7 +373,8 @@ def plan_repairs(
     # default, irrespective of the requested repair confidence.
     from .checks import sensitive_columns
 
-    private = sensitive_columns(table)
+    private = sensitive_columns(table, config)
+    plan.private_columns = set(private)
 
     for index, column in enumerate(table.columns):
         # Protect even predominantly numeric or date columns. A lone formula
@@ -398,7 +400,10 @@ def plan_repairs(
             )
             continue
 
-        if column.name in private:
+        if (
+            column.name in private
+            or config.column_policy(column.name, column.key).role == "identifier"
+        ):
             rule_refuse_unfixable(column, grid[index], plan)
             candidate = RepairPlan()
             working = list(grid[index])
@@ -409,7 +414,7 @@ def plan_repairs(
                     Refusal(
                         column.name,
                         "sensitive-value-preserved",
-                        "Sensitive or opaque column values are preserved exactly. "
+                        "Sensitive or identifier column values are preserved exactly. "
                         "Review them manually; automatic normalization may "
                         "change their meaning.",
                     )
@@ -505,7 +510,7 @@ def write_log(
     Source and row deletion entries have distinct rule names. To reconstruct
     source values, retain the original file; redacted log values are deliberate.
     """
-    sensitive = sensitive_columns or set()
+    sensitive = plan.private_columns | set(sensitive_columns or ())
     with atomic_text_writer(path, newline="") as handle:
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(["line", "column", "rule", "confidence", "before", "after"])
@@ -564,6 +569,7 @@ def render_plan(
         from .checks import sensitive_columns as detect_sensitive_columns
 
         sensitive_columns = detect_sensitive_columns(table)
+    sensitive_columns = set(sensitive_columns) | plan.private_columns
     lines = [f"{terminal_safe(table.path)} to {terminal_safe(destination)}", ""]
     grouped = plan.by_rule()
     if not grouped and not plan.dropped_lines:

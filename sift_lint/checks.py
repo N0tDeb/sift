@@ -28,6 +28,7 @@ from .inference import (
     is_formula_injection,
     looks_like_id_name,
     normalize_label,
+    parse_number,
     whitespace_problem,
 )
 from .loading import Table
@@ -757,6 +758,9 @@ def check_numeric_values(table: Table, config: Config) -> list[Finding]:
     findings = []
     for column in table.columns:
         profile = column.profile
+        role = config.column_policy(column.name, column.key).role
+        if role not in (None, "measure"):
+            continue  # identifiers/categories/dates are not numerical measurements
         if profile.kind != NUMERIC or len(profile.numbers) < 8:
             continue
         stats = profile.stats()
@@ -776,8 +780,10 @@ def check_numeric_values(table: Table, config: Config) -> list[Finding]:
         # fact about the value and holds however unique the column is. Gating
         # all three on this guard silently switched off both of the others for
         # any column of distinct whole numbers, which is most quantity columns.
-        looks_like_identifier = looks_like_id_name(column.name) or (
-            profile.unique_ratio > 0.9 and all(v == int(v) for v in profile.numbers)
+        looks_like_identifier = role is None and (
+            looks_like_id_name(column.name) or (
+                profile.unique_ratio > 0.9 and all(v == int(v) for v in profile.numbers)
+            )
         )
 
         if mad > 0 and not looks_like_identifier:
@@ -1114,19 +1120,29 @@ def check_sensitive_data(table: Table, config: Config) -> list[Finding]:
     return findings
 
 
-def sensitive_columns(table: Table) -> set[str]:
+def sensitive_columns(table: Table, config: Config | None = None) -> set[str]:
     """Columns whose values or names indicate personal/financial data.
 
     This intentionally bypasses project silencing rules.  Silencing a
     sensitive-data warning must not make unrelated findings or repair audit
     logs start printing the underlying values.
     """
-    return {
+    detected = {
         finding.column
         for finding in check_sensitive_data(table, Config())
         if finding.column is not None
         and finding.code in {"sensitive-data", "sensitive-column-name"}
     }
+    for column in table.columns:
+        declared_sensitive = (
+            config is not None
+            and config.column_policy(column.name, column.key).role == "sensitive"
+        )
+        if declared_sensitive or column.name in detected:
+            # Findings may target the duplicate's unique synthetic key, while
+            # repair logs use the raw header. Guard both identities.
+            detected.update((column.name, column.key))
+    return detected
 
 
 @check
@@ -1197,6 +1213,92 @@ def collapse(findings: list[Finding]) -> list[Finding]:
     return out
 
 
+@check
+def check_column_policies(table: Table, config: Config) -> list[Finding]:
+    """Declarative, read-only column validation; never silently coerce values."""
+    findings: list[Finding] = []
+    for name, policy in config.columns.items():
+        column = table.by_key(name)
+        if column is None:
+            if policy.required:
+                findings.append(Finding(
+                    "required-column-missing", Severity.ERROR,
+                    f"Required column {name!r} is missing from this file.", column=name,
+                ))
+            continue
+        position = {"column_index": column.index}
+        if policy.required:
+            missing = sum(1 for value in column.values if is_blank(value) or
+                          is_disguised_null(value))
+            if missing:
+                findings.append(Finding(
+                    "required-value-missing", Severity.ERROR,
+                    f"Required column {name!r} has {plural(missing, 'missing value')}.",
+                    column=name, detail={**position, "count": missing},
+                ))
+        if policy.allowed_values is not None:
+            allowed = set(policy.allowed_values)
+            invalid = [v for v in column.values if not is_blank(v) and
+                       not is_disguised_null(v) and v not in allowed]
+            if invalid:
+                findings.append(Finding(
+                    "value-not-allowed", Severity.ERROR,
+                    f"{name!r} has {plural(len(invalid), 'value')} outside its "
+                    "configured allowed_values list.",
+                    column=name, detail={**position, "count": len(invalid)},
+                    examples=_samples(invalid, config.max_examples),
+                ))
+        if policy.min_value is None and policy.max_value is None:
+            continue
+        reading = infer_number_convention(column.profile)
+        if reading.label in ("undecidable", "conflicting"):
+            findings.append(Finding(
+                "range-unverifiable", Severity.ERROR,
+                f"{name!r} has an undecidable numeric convention; "
+                "configured numeric bounds cannot be verified.",
+                column=name, detail=position,
+            ))
+            continue
+        convention = reading.convention or "en"
+        invalid_number = 0
+        percent_scaled = 0
+        outside = 0
+        for raw in column.values:
+            if is_blank(raw) or is_disguised_null(raw):
+                continue
+            number = parse_number(raw, convention)
+            if number is None:
+                invalid_number += 1
+            elif "percent" in number.flags:
+                # Does min_value=0.5 mean fifty percent or half a percent?
+                # Avoid silently applying bounds on the wrong scale.
+                percent_scaled += 1
+            elif ((policy.min_value is not None and number.value < policy.min_value)
+                  or (policy.max_value is not None and number.value > policy.max_value)):
+                outside += 1
+        if percent_scaled:
+            findings.append(Finding(
+                "range-unverifiable", Severity.ERROR,
+                f"{name!r} has {plural(percent_scaled, 'percent-formatted value')}; "
+                "numeric bounds cannot safely assume a percent scale.",
+                column=name, detail={**position, "count": percent_scaled},
+            ))
+        if invalid_number:
+            findings.append(Finding(
+                "range-nonnumeric", Severity.ERROR,
+                f"{name!r} has {plural(invalid_number, 'non-numeric value')} "
+                "that cannot be checked against the configured numeric bounds.",
+                column=name, detail={**position, "count": invalid_number},
+            ))
+        if outside:
+            findings.append(Finding(
+                "value-out-of-range", Severity.ERROR,
+                f"{name!r} has {plural(outside, 'value')} outside its configured bounds.",
+                column=name, detail={**position, "count": outside},
+            ))
+    return findings
+
+
 def run_checks(table: Table, config: Config) -> list[Finding]:
     findings = list(table.file_findings)
     for check_fn in CHECKS:
@@ -1204,5 +1306,5 @@ def run_checks(table: Table, config: Config) -> list[Finding]:
     # Determine sensitivity before configuration filtering.  A user may mute
     # the sensitive-data finding, but that must not re-enable raw-value output
     # from another finding on the same column.
-    findings = redact_sensitive_findings(findings)
+    findings = redact_sensitive_findings(findings, sensitive_columns(table, config))
     return collapse(config.filter(findings))

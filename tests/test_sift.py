@@ -2442,7 +2442,9 @@ def test_every_finding_code_has_a_test_or_a_benchmark_case():
     source = "\n".join(p.read_text(encoding="utf-8") for p in (root / "sift_lint").glob("*.py"))
     emitted = set(re.findall(r'Finding\(\s*\n?\s*"([a-z0-9-]+)"', source))
 
-    tests = Path(__file__).read_text(encoding="utf-8")
+    tests = "\n".join(
+        p.read_text(encoding="utf-8") for p in (root / "tests").glob("test_*.py")
+    )
     bench = "\n".join(
         p.read_text(encoding="utf-8") for p in (root / "bench").glob("*.py")
     )

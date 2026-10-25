@@ -79,6 +79,17 @@ A test asserts this file lists exactly the codes the source can emit, so it cann
 | `near-duplicate-labels` | info | A rare misspelling of a spelling the rest of the column agrees on. |
 | `high-cardinality` | info | A text column that is almost entirely unique — free text or an identifier, not a category. |
 
+## Explicit column policies (configured under `[sift.columns."name"]`)
+
+| Code | Severity | Meaning |
+| --- | --- | --- |
+| `required-column-missing` | error | A column marked `required = true` is absent. |
+| `required-value-missing` | error | A required column contains blank or disguised-null values. |
+| `value-not-allowed` | error | A non-null value is outside the configured exact `allowed_values`. |
+| `range-unverifiable` | error | A numeric range rule cannot be safely evaluated because the locale is ambiguous or conflicting. |
+| `range-nonnumeric` | error | A value cannot be parsed as a number for a configured range rule. |
+| `value-out-of-range` | error | A numeric value exceeds the explicit minimum or maximum. |
+
 ## Keys and references
 
 | Code | Severity | Meaning |

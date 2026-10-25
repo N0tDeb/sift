@@ -5,6 +5,13 @@ Notable user-visible changes to Sift are recorded here. Releases use
 
 ## Unreleased (post-1.0.0 source changes — not on PyPI yet)
 
+- Batch 7 configurable column policies: opt-in semantic roles
+  (`identifier`, `measure`, `category`, `date`, `text`, `sensitive`) and strict
+  read-only validation for required columns/values, exact allowed values,
+  and numerical bounds. Guard sensitive and identifier values during repairs;
+  apply configured privacy to reports and Python APIs, and suppress
+  meaningless numeric statistics on non-measures. Document new finding codes.
+
 - Batch 6 privacy/correctness: redact comparisons using both datasets and
   reference checks using both files' sensitivity, including common secret
   field names; preserve opaque

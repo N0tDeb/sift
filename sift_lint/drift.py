@@ -137,9 +137,12 @@ def compare(baseline: Table, current: Table, config: Config) -> list[Finding]:
                 # when they consist entirely of digits. A median shift there
                 # is meaningless and generates noise rather than insight.
                 name_role = normalize_label(name)
-                identifier = looks_like_id_name(name) or name_role in {
-                    "zip", "zip code", "zipcode", "postal", "postal code", "postcode",
-                }
+                role = config.column_policy(name, old.key).role
+                identifier = (role is not None and role != "measure") or (
+                    role is None and (looks_like_id_name(name) or name_role in {
+                        "zip", "zip code", "zipcode", "postal", "postal code", "postcode",
+                    })
+                )
                 if (not identifier and old_median is not None and old_median != 0
                         and new_median is not None):
                     shift = abs(new_median - old_median) / abs(old_median)
@@ -205,5 +208,5 @@ def compare(baseline: Table, current: Table, config: Config) -> list[Finding]:
     from .checks import sensitive_columns
     from .findings import redact_sensitive_findings
 
-    private = sensitive_columns(baseline) | sensitive_columns(current)
+    private = sensitive_columns(baseline, config) | sensitive_columns(current, config)
     return redact_sensitive_findings(config.filter(findings), private)

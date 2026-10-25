@@ -92,7 +92,7 @@ warning leading-zeros  zip
 
 Terminal output treats file names, column names and example values as untrusted text: control and Unicode format characters are shown as visible escapes (for example `\\x1b`) instead of being sent to the terminal as control sequences.
 
-Every finding has a stable code. [CODES.md](https://github.com/N0tDeb/sift/blob/main/CODES.md) lists all 64 of them with severity and meaning; a test keeps that list from drifting out of date.
+Every finding has a stable code. [CODES.md](https://github.com/N0tDeb/sift/blob/main/CODES.md) lists all 70 of them with severity and meaning; a test keeps that list from drifting out of date.
 
 ### HTML report preview
 
@@ -368,6 +368,44 @@ ignore = ["outliers"]
 whitespace = ["notes"]
 high-cardinality = ["email"]
 ```
+
+### Column roles and explicit validation (opt-in)
+
+Add named column policies to `sift.toml` to supplement heuristics. These rules are
+**read-only validation**; they do not rewrite data. Existing configurations keep
+working without changes. All violations appear as finding codes in `CODES.md`.
+
+```toml
+[sift.columns."postal_code"]
+role = "identifier"  # protect exact bytes from automatic repair and avoid numeric drift
+required = true
+
+[sift.columns."amount"]
+role = "measure"     # even if the name looks like an ID
+required = true
+min_value = 0
+max_value = 100000
+
+[sift.columns."status"]
+role = "category"
+allowed_values = ["open", "closed", "pending"]  # exact, case-sensitive
+
+[sift.columns."access_code"]
+role = "sensitive"   # protect diagnostics, profile and repair even without name heuristics
+```
+
+Supported roles: `identifier`, `measure`, `category`, `date`, `text`,
+`sensitive`. Roles `identifier` and `sensitive` prevent automated cell rewriting.
+Non-measure roles suppress numerical outlier and median-shift checks. A
+`measure` role can opt into those checks despite identifier-like naming.
+`required` rejects absent, blank and disguised-null values. `allowed_values`
+compares exact text; bounds use the column's safely inferred number convention.
+Ambiguous numeric formats fail validation rather than being silently guessed.
+Unknown fields and invalid policy combinations fail config loading.
+
+Policy names refer to column headers. Avoid ambiguous or duplicate headers
+before using per-column rules. Use `--config` to select a configuration;
+`--no-config` returns to heuristics without the new policies.
 
 Per-column silencing exists because that is what people actually need. A `notes` column is *supposed* to be free text; silencing `high-cardinality` everywhere to quiet it would hide the same signal in a column where it means an ID leaked into a category field.
 

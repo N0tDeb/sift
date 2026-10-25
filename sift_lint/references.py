@@ -86,7 +86,10 @@ def check_reference(
 
     private_local = (
         {reference.local}
-        if local.name in sensitive_columns(table) or foreign.name in sensitive_columns(other)
+        if (
+            local.name in sensitive_columns(table, config)
+            or foreign.name in sensitive_columns(other, config)
+        )
         else set()
     )
     known = {value for value in foreign.values if not is_blank(value)}
